@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# 微信数据
+output/
+*.db
+*.db-wal
+*.db-shm
+
+# 配置文件(可能包含敏感信息)
+config.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 测试文件
+test_*.py
+*_test.py
+samples_*.txt
+test_*.txt
+
+# 临时文件
+*.tmp
+*.log
+*.bak
+nul
