@@ -13,23 +13,34 @@ import traceback
 from pathlib import Path
 from datetime import datetime
 
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, Response, stream_with_context
 from flask_cors import CORS
 import pandas as pd
+import json as json_module
 
-# 添加src目录到路径
-src_path = Path(__file__).parent / "src"
+# 添加路径
+root_path = Path(__file__).parent
+src_path = root_path / "src"
+utils_path = root_path / "utils"
+scripts_path = root_path / "scripts"
+
 sys.path.insert(0, str(src_path))
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, str(utils_path))
+sys.path.insert(0, str(scripts_path))
 
 from wechat_decrypt_tool.wechat_decrypt import decrypt_wechat_databases, WeChatDatabaseDecryptor
 from wechat_decrypt_tool.logging_config import get_logger
 from search_messages_optimized import MessageSearcher  # 使用优化版搜索器
 from config_manager import ConfigManager
+from wechat_key_extractor import auto_extract_keys, load_keys_from_config, save_keys_to_config
+from dat_to_image import DatImageDecryptor
+from utils.llm_client import OpenAIClient, LLMConfig
 
 app = Flask(__name__)
 CORS(app)
 app.config['JSON_AS_ASCII'] = False
+app.config['TEMPLATES_AUTO_RELOAD'] = True  # 模板自动重载
+app.jinja_env.auto_reload = True
 
 # 全局配置
 OUTPUT_BASE_DIR = Path(__file__).parent / "output" / "databases"
@@ -439,11 +450,20 @@ def status():
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    """获取配置"""
-    return jsonify({
+    """获取配置 - 每次请求都从Excel实时读取"""
+    # 为避免任何缓存或进程状态导致的旧数据，使用新的ConfigManager实例读取
+    fresh_config_manager = ConfigManager()
+    config = fresh_config_manager.get_all(reload=True)
+
+    response = jsonify({
         'success': True,
-        'config': config_manager.get_all()
+        'config': config
     })
+    # 禁用浏览器/代理缓存，避免返回旧配置
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 @app.route('/api/config', methods=['POST'])
@@ -703,13 +723,365 @@ def get_message_type_name(msg_type):
     return type_map.get(msg_type, f'类型{msg_type}')
 
 
+@app.route('/api/image/extract-keys', methods=['POST'])
+def extract_image_keys():
+    """提取图片解密密钥（自动从config.xlsx读取路径）"""
+    try:
+        # 从config_manager获取配置
+        config = config_manager.get_all()
+        wechat_files_path = config.get('wechat_files_path')
+
+        if not wechat_files_path:
+            return jsonify({
+                'success': False,
+                'message': '请先在"数据库配置"中设置数据库路径，系统将自动定位图片目录'
+            })
+
+        # 微信文件根目录：wechat_files_path的上级目录
+        # 例如：wechat_files_path = "D:\WeChat Files\wxid_xxx\db_storage"
+        # 则根目录为："D:\WeChat Files\wxid_xxx"
+        wechat_root = Path(wechat_files_path).parent
+
+        # 提取密钥（会自动在msg/attach目录下查找dat文件）
+        xor_key, aes_key = auto_extract_keys(str(wechat_root), 'config.xlsx')
+
+        if xor_key is None:
+            return jsonify({
+                'success': False,
+                'message': '未能提取密钥，请检查配置的数据库路径是否正确'
+            })
+
+        return jsonify({
+            'success': True,
+            'message': '密钥提取成功',
+            'xor_key': xor_key,
+            'aes_key': aes_key,
+            'has_aes_key': aes_key is not None,
+            'dat_path': str(wechat_root / 'msg' / 'attach')
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'提取密钥失败: {str(e)}'
+        })
+
+
+@app.route('/api/image/convert', methods=['POST'])
+def convert_dat_images():
+    """批量转换dat文件为jpg（自动从config.xlsx读取路径）"""
+    try:
+        # 从config_manager获取配置
+        config = config_manager.get_all()
+        wechat_files_path = config.get('wechat_files_path')
+
+        if not wechat_files_path:
+            return jsonify({
+                'success': False,
+                'message': '请先在"数据库配置"中设置数据库路径'
+            })
+
+        # dat文件目录：wechat_files_path的上级/msg/attach
+        wechat_root = Path(wechat_files_path).parent
+        dat_dir = wechat_root / 'msg' / 'attach'
+
+        if not dat_dir.exists():
+            return jsonify({
+                'success': False,
+                'message': f'图片目录不存在: {dat_dir}'
+            })
+
+        # 从配置加载密钥
+        xor_key, aes_key = load_keys_from_config('config.xlsx')
+
+        if xor_key is None:
+            return jsonify({
+                'success': False,
+                'message': '未找到密钥，请先点击"提取密钥"按钮'
+            })
+
+        if aes_key is None:
+            return jsonify({
+                'success': False,
+                'message': '未找到AES密钥，V4格式需要AES密钥（需管理员权限提取）'
+            })
+
+        # 输出目录：output/images
+        output_dir = Path(__file__).parent / 'output' / 'images'
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 创建解密器
+        decryptor = DatImageDecryptor(xor_key, aes_key)
+
+        # 批量转换
+        success, fail = decryptor.batch_convert(
+            str(dat_dir),
+            str(output_dir),
+            recursive=True
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'转换完成：成功 {success} 个，失败 {fail} 个',
+            'total': success + fail,
+            'success_count': success,
+            'fail_count': fail,
+            'dat_dir': str(dat_dir),
+            'output_dir': str(output_dir)
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'转换失败: {str(e)}'
+        })
+
+
+@app.route('/api/image/get-keys', methods=['GET'])
+def get_image_keys():
+    """获取已保存的密钥"""
+    try:
+        xor_key, aes_key = load_keys_from_config('config.xlsx')
+
+        return jsonify({
+            'success': True,
+            'has_xor_key': xor_key is not None,
+            'has_aes_key': aes_key is not None,
+            'xor_key': xor_key,
+            'aes_key': aes_key[:8] + '...' + aes_key[-8:] if aes_key else None  # 只显示部分密钥
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        })
+
+
+# ==================== AI大模型问答API (OpenAI兼容格式) ====================
+
+# 全局LLM客户端缓存
+_llm_client = None
+_llm_config_cache = None
+
+
+def get_llm_client(api_base=None, model=None, api_key=None, temperature=0.7, max_tokens=2000):
+    """获取或创建LLM客户端 (统一使用OpenAI兼容格式)"""
+    global _llm_client, _llm_config_cache
+    
+    # 如果没有传入参数，从配置文件加载
+    if api_base is None or api_key is None:
+        config = config_manager.get_all(reload=True)
+        api_base = api_base or config.get('llm_api_base', '')
+        model = model or config.get('llm_model', '')
+        api_key = api_key or config.get('llm_api_key', '')
+        temperature = float(config.get('llm_temperature', 0.7))
+        max_tokens = int(config.get('llm_max_tokens', 2000))
+    
+    current_config = {
+        'api_base': api_base,
+        'model': model,
+        'api_key': api_key,
+        'temperature': temperature,
+        'max_tokens': max_tokens,
+    }
+    
+    # 检查必需的配置
+    if not api_base or not api_key or not model:
+        return None
+    
+    # 如果配置没变，返回缓存的客户端
+    if _llm_client and _llm_config_cache == current_config:
+        return _llm_client
+    
+    try:
+        llm_config = LLMConfig(
+            provider='openai',
+            api_key=api_key,
+            api_base=api_base,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        _llm_client = OpenAIClient(llm_config)
+        _llm_config_cache = current_config
+        return _llm_client
+    except Exception as e:
+        print(f"创建LLM客户端失败: {e}")
+        return None
+
+
+@app.route('/api/llm/chat', methods=['POST'])
+def llm_chat():
+    """发送聊天消息到大模型"""
+    try:
+        data = request.json
+        
+        message = data.get('message', '')
+        context = data.get('context', '')  # 搜索结果上下文
+        history = data.get('history', [])  # 对话历史
+        
+        if not message:
+            return jsonify({
+                'success': False,
+                'message': '消息不能为空'
+            })
+        
+        # 获取LLM客户端
+        client = get_llm_client()
+        
+        if not client:
+            return jsonify({
+                'success': False,
+                'message': '请先配置大模型（设置提供商和API密钥）'
+            })
+        
+        # 构建消息列表
+        messages = []
+        
+        # 添加历史消息
+        for h in history:
+            messages.append({
+                'role': h.get('role', 'user'),
+                'content': h.get('content', '')
+            })
+        
+        # 添加当前消息
+        messages.append({
+            'role': 'user',
+            'content': message
+        })
+        
+        # 调用大模型
+        response_text = client.chat(messages, context=context)
+        
+        return jsonify({
+            'success': True,
+            'response': response_text
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'调用大模型失败: {str(e)}'
+        })
+
+
+@app.route('/api/llm/chat/stream', methods=['POST'])
+def llm_chat_stream():
+    """流式聊天接口 (Server-Sent Events)"""
+    try:
+        data = request.json
+        
+        message = data.get('message', '')
+        context = data.get('context', '')
+        history = data.get('history', [])
+        
+        # 获取LLM配置
+        api_base = data.get('api_base', '')
+        model = data.get('model', '')
+        api_key = data.get('api_key', '')
+        temperature = float(data.get('temperature', 0.7))
+        max_tokens = int(data.get('max_tokens', 2000))
+        
+        if not message:
+            return jsonify({
+                'success': False,
+                'message': '消息不能为空'
+            })
+        
+        client = get_llm_client(api_base, model, api_key, temperature, max_tokens)
+        
+        if not client:
+            return jsonify({
+                'success': False,
+                'message': '请先配置API地址、模型和密钥'
+            })
+        
+        # 构建消息列表
+        messages = []
+        for h in history:
+            messages.append({
+                'role': h.get('role', 'user'),
+                'content': h.get('content', '')
+            })
+        messages.append({
+            'role': 'user',
+            'content': message
+        })
+        
+        def generate():
+            try:
+                for chunk in client.stream_chat(messages, context=context):
+                    yield f"data: {json_module.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+                yield f"data: {json_module.dumps({'done': True})}\n\n"
+            except Exception as e:
+                yield f"data: {json_module.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+        
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'流式调用失败: {str(e)}'
+        })
+
+
+@app.route('/api/llm/test', methods=['POST'])
+def test_llm_connection():
+    """测试大模型连接 (OpenAI兼容格式)"""
+    try:
+        data = request.json or {}
+        
+        # 从请求中获取配置，或从配置文件加载
+        api_base = data.get('api_base', '')
+        model = data.get('model', '')
+        api_key = data.get('api_key', '')
+        temperature = float(data.get('temperature', 0.7))
+        max_tokens = int(data.get('max_tokens', 2000))
+        
+        client = get_llm_client(api_base, model, api_key, temperature, max_tokens)
+        
+        if not client:
+            return jsonify({
+                'success': False,
+                'message': '请先配置API地址、模型名称和API密钥'
+            })
+        
+        # 发送一个简单的测试消息
+        test_messages = [{'role': 'user', 'content': '你好，请用一句话介绍自己。'}]
+        response = client.chat(test_messages)
+        
+        return jsonify({
+            'success': True,
+            'message': '连接测试成功',
+            'response': response[:200] + '...' if len(response) > 200 else response
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'连接测试失败: {str(e)}'
+        })
+
+
 if __name__ == '__main__':
     # 初始化搜索器
     print("正在初始化搜索器...")
     if init_searcher():
         print("✓ 搜索器初始化成功")
     else:
-        print("⚠ 搜索器初始化失败,请先运行 export_final.py 导出聊天记录")
+        print("⚠ 搜索器初始化失败,请先解密数据库")
 
     print("\n" + "=" * 60)
     print("微信数据库解密与聊天记录搜索 - 集成Web应用")
@@ -722,4 +1094,14 @@ if __name__ == '__main__':
     print("  3. 配置管理")
     print("\n按 Ctrl+C 停止服务器\n")
 
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # 自动打开浏览器
+    import webbrowser
+    import threading
+    def open_browser():
+        import time
+        time.sleep(1.5)  # 等待服务器启动
+        webbrowser.open('http://127.0.0.1:5000')
+
+    threading.Thread(target=open_browser, daemon=True).start()
+
+    app.run(host='0.0.0.0', port=5000, debug=False)  # 关闭debug模式避免双开浏览器

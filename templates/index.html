@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>微信数据库解密与聊天记录搜索</title>
+    <title>国海微信数据筛选工具 v1.1</title>
     <style>
         * {
             margin: 0;
@@ -13,7 +13,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #e8f4f8;
             min-height: 100vh;
             padding: 20px;
         }
@@ -32,7 +32,7 @@
         }
 
         .header h1 {
-            color: #667eea;
+            color: #4a9fd8;
             font-size: 28px;
             margin-bottom: 8px;
         }
@@ -40,6 +40,12 @@
         .header p {
             color: #666;
             font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .header .version {
+            color: #999;
+            font-size: 12px;
         }
 
         .main-content {
@@ -61,7 +67,7 @@
             color: #333;
             margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #667eea;
+            border-bottom: 2px solid #4a9fd8;
             display: flex;
             align-items: center;
             gap: 8px;
@@ -97,8 +103,8 @@
         .form-group input:focus,
         .form-group select:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #4a9fd8;
+            box-shadow: 0 0 0 3px rgba(74, 159, 216, 0.1);
         }
 
         .btn {
@@ -119,22 +125,30 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #4a9fd8;
             color: white;
+        }
+
+        .btn-primary:hover {
+            background: #3d8bc4;
         }
 
         .btn-success {
-            background: #10b981;
+            background: #4a9fd8;
             color: white;
         }
 
+        .btn-success:hover {
+            background: #3d8bc4;
+        }
+
         .btn-secondary {
-            background: #f5f5f5;
-            color: #666;
+            background: #4a9fd8;
+            color: white;
         }
 
         .btn-secondary:hover {
-            background: #e0e0e0;
+            background: #3d8bc4;
         }
 
         .alert {
@@ -195,32 +209,6 @@
             gap: 10px;
         }
 
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px;
-            border-radius: 10px;
-            color: white;
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 5px;
-        }
-
-        .stat-label {
-            font-size: 13px;
-            opacity: 0.9;
-        }
-
         .results-area {
             background: white;
             padding: 20px;
@@ -246,7 +234,7 @@
             padding: 16px;
             border-radius: 8px;
             margin-bottom: 12px;
-            border-left: 3px solid #667eea;
+            border-left: 3px solid #4a9fd8;
             transition: all 0.2s;
         }
 
@@ -281,7 +269,7 @@
         .message-type {
             display: inline-block;
             padding: 3px 10px;
-            background: #667eea;
+            background: #4a9fd8;
             color: white;
             border-radius: 12px;
             font-size: 11px;
@@ -308,12 +296,12 @@
         .loading {
             text-align: center;
             padding: 40px;
-            color: #667eea;
+            color: #4a9fd8;
         }
 
         .spinner {
             border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
+            border-top: 3px solid #4a9fd8;
             border-radius: 50%;
             width: 40px;
             height: 40px;
@@ -341,8 +329,9 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>微信数据库解密与聊天记录搜索</h1>
-            <p>一站式解密数据库、搜索聊天记录、导出数据</p>
+            <h1 style="color: #4a9fd8 !important;">国海微信数据筛选工具</h1>
+            <p>联系人：国海金工林宸星 18939965999</p>
+            <p class="version">版本号 v1.1</p>
         </div>
 
         <div class="main-content">
@@ -374,33 +363,57 @@
                 <!-- 分隔线 -->
                 <div class="section-divider"></div>
 
-                <!-- 2. 搜索聊天记录 -->
+                <!-- 2. 图片解密 (V4格式) -->
+                <div class="card-title">🖼️ 图片解密 (仅V4格式)</div>
+
+                <div class="config-grid" style="grid-template-columns: 2fr 1fr;">
+                    <div class="form-group">
+                        <label>密钥状态</label>
+                        <div id="key-status" style="padding: 8px; background: #f3f4f6; border-radius: 6px; font-size: 12px; color: #666;">
+                            未加载
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>操作</label>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-primary" onclick="extractImageKeys()" style="flex: 1;">🔑 提取密钥</button>
+                            <button class="btn btn-success" onclick="convertImages()" style="flex: 1;">🖼️ 转换图片</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="image-message"></div>
+
+                <!-- 分隔线 -->
+                <div class="section-divider"></div>
+
+                <!-- 3. 搜索聊天记录 -->
                 <div class="card-title">🔍 搜索聊天记录</div>
                 <form id="search-form">
                     <div class="search-grid">
                         <div class="form-group">
-                            <label>开始日期</label>
-                            <input type="date" id="start_date" name="start_date" onchange="autoSaveSearchConfig()">
+                            <label>开始日期 <small>(格式: YYYY-MM-DD)</small></label>
+                            <input type="date" id="start_date" name="start_date" placeholder="YYYY-MM-DD" onchange="autoSaveSearchConfig()">
                         </div>
                         <div class="form-group">
-                            <label>结束日期</label>
-                            <input type="date" id="end_date" name="end_date" onchange="autoSaveSearchConfig()">
+                            <label>结束日期 <small>(格式: YYYY-MM-DD)</small></label>
+                            <input type="date" id="end_date" name="end_date" placeholder="YYYY-MM-DD" onchange="autoSaveSearchConfig()">
                         </div>
                         <div class="form-group">
-                            <label>聊天对象</label>
-                            <input type="text" id="chat_name" name="chat_name" placeholder="群名/好友名" onblur="autoSaveSearchConfig()">
+                            <label>聊天对象 <small>(多个对象用逗号分隔，支持全角、半角)</small></label>
+                            <input type="text" id="chat_name" name="chat_name" placeholder="群名/好友名，支持多个，用逗号(,或，)分隔" onblur="autoSaveSearchConfig()">
                         </div>
                         <div class="form-group">
-                            <label>发言人</label>
-                            <input type="text" id="sender_name" name="sender_name" placeholder="发言人">
+                            <label>发言人 <small>(多个发言人用逗号分隔，支持全角、半角)</small></label>
+                            <input type="text" id="sender_name" name="sender_name" placeholder="发言人，支持多个，用逗号(,或，)分隔">
                         </div>
                         <div class="form-group">
-                            <label>搜索关键词</label>
-                            <input type="text" id="keyword" name="keyword" placeholder="消息内容" onblur="autoSaveSearchConfig()">
+                            <label>搜索关键词 <small>(多个关键词用逗号分隔，支持全角、半角)</small></label>
+                            <input type="text" id="keyword" name="keyword" placeholder="消息内容，支持多个，用逗号(,或，)分隔" onblur="autoSaveSearchConfig()">
                         </div>
                         <div class="form-group">
-                            <label>过滤关键词</label>
-                            <input type="text" id="delete_keywords" name="delete_keywords" placeholder="如: 广告,spam" onblur="autoSaveSearchConfig()">
+                            <label>过滤关键词 <small>(多个关键词用逗号分隔，支持全角、半角)</small></label>
+                            <input type="text" id="delete_keywords" name="delete_keywords" placeholder="如: 广告,spam,垃圾信息" onblur="autoSaveSearchConfig()">
                         </div>
                         <div class="form-group">
                             <label>消息类型</label>
@@ -431,22 +444,6 @@
                 </form>
             </div>
 
-            <!-- 统计数据 -->
-            <div class="stats-grid" id="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-total">-</div>
-                    <div class="stat-label">总消息数</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-chats">-</div>
-                    <div class="stat-label">聊天对象</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-senders">-</div>
-                    <div class="stat-label">发言人</div>
-                </div>
-            </div>
-
             <!-- 搜索结果 -->
             <div class="results-area">
                 <div id="loading" class="loading" style="display: none;">
@@ -465,17 +462,345 @@
                     </div>
                 </div>
             </div>
+
+            <!-- AI问答模块 -->
+            <div class="card" id="ai-chat-section">
+                <div class="card-title">🤖 AI智能问答 <small style="font-weight: normal; color: #888;">(OpenAI兼容格式)</small></div>
+                
+                <!-- AI配置区域 -->
+                <div class="ai-config-area" id="ai-config-area">
+                    <div class="config-grid" style="grid-template-columns: 2fr 1fr 2fr;">
+                        <div class="form-group">
+                            <label>API地址 <small>(OpenAI兼容格式)</small></label>
+                            <input type="text" id="llm_api_base" placeholder="如: https://api.deepseek.com/v1">
+                        </div>
+                        <div class="form-group">
+                            <label>模型名称</label>
+                            <input type="text" id="llm_model" placeholder="如: deepseek-chat">
+                        </div>
+                        <div class="form-group">
+                            <label>API密钥</label>
+                            <input type="password" id="llm_api_key" placeholder="输入API密钥">
+                        </div>
+                    </div>
+                    <div class="config-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div class="form-group">
+                            <label>温度 <small>(0-1，越高越随机)</small></label>
+                            <input type="number" id="llm_temperature" value="0.7" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label>最大Token</label>
+                            <input type="number" id="llm_max_tokens" value="2000" min="100" max="8000">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <button class="btn btn-secondary" onclick="loadConfig()" style="flex: 1;">🔄 从配置加载</button>
+                        <button class="btn btn-primary" onclick="testLLMConnection()" style="flex: 1;">🔗 测试连接</button>
+                        <button class="btn btn-secondary" onclick="toggleConfigArea()" style="flex: 0.5;">收起 ▲</button>
+                    </div>
+                    <div id="llm-config-message"></div>
+                </div>
+
+                <!-- 配置折叠按钮 -->
+                <div id="config-toggle-btn" style="display: none; margin-bottom: 15px;">
+                    <button class="btn btn-secondary" onclick="toggleConfigArea()" style="width: 100%;">⚙️ 展开AI配置</button>
+                </div>
+
+                <!-- 聊天区域 -->
+                <div class="chat-container">
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="chat-welcome">
+                            <div class="welcome-icon">💬</div>
+                            <h3>AI聊天助手</h3>
+                            <p>在config.xlsx中配置API地址和密钥，支持所有OpenAI兼容格式的大模型</p>
+                            <div class="welcome-tips">
+                                <div class="tip">💡 搜索后点击"使用搜索结果"将结果作为上下文</div>
+                                <div class="tip">💡 支持多轮对话，AI会记住上下文</div>
+                                <div class="tip">💡 兼容DeepSeek、通义千问、智谱等OpenAI格式API</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-context-bar" id="context-bar" style="display: none;">
+                        <span class="context-label">📎 已加载搜索结果作为上下文</span>
+                        <button class="context-clear" onclick="clearContext()">✕ 清除</button>
+                    </div>
+                    
+                    <div class="chat-input-area">
+                        <div class="chat-actions">
+                            <button class="btn btn-secondary btn-small" onclick="useSearchResults()" id="use-results-btn" disabled>
+                                📋 使用搜索结果
+                            </button>
+                            <button class="btn btn-secondary btn-small" onclick="clearChat()">
+                                🗑️ 清空对话
+                            </button>
+                        </div>
+                        <div class="chat-input-row">
+                            <textarea id="chat-input" placeholder="输入您的问题..." rows="2" onkeydown="handleChatKeydown(event)"></textarea>
+                            <button class="btn btn-primary chat-send-btn" onclick="sendChatMessage()" id="send-btn">
+                                发送
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
+
+    <style>
+        /* AI聊天区域样式 */
+        .ai-config-area {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 500px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+        }
+        
+        .chat-welcome {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        
+        .welcome-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        
+        .chat-welcome h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .welcome-tips {
+            margin-top: 20px;
+            text-align: left;
+            display: inline-block;
+        }
+        
+        .welcome-tips .tip {
+            font-size: 12px;
+            color: #888;
+            margin: 5px 0;
+        }
+        
+        .message-bubble {
+            max-width: 80%;
+            margin-bottom: 15px;
+            clear: both;
+        }
+        
+        .message-bubble.user {
+            float: right;
+        }
+        
+        .message-bubble.assistant {
+            float: left;
+        }
+        
+        .message-bubble .bubble-content {
+            padding: 12px 16px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+        
+        .message-bubble.user .bubble-content {
+            background: linear-gradient(135deg, #4a9fd8 0%, #3d8bc4 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .message-bubble.assistant .bubble-content {
+            background: white;
+            color: #333;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .message-bubble .bubble-time {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+            text-align: right;
+        }
+        
+        .message-bubble.assistant .bubble-time {
+            text-align: left;
+        }
+        
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 15px;
+        }
+        
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: #4a9fd8;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+        
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
+            30% { transform: translateY(-8px); opacity: 1; }
+        }
+        
+        .chat-context-bar {
+            padding: 8px 15px;
+            background: #e8f4f8;
+            border-top: 1px solid #d0e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+        
+        .context-label {
+            color: #4a9fd8;
+        }
+        
+        .context-clear {
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .context-clear:hover {
+            color: #e74c3c;
+        }
+        
+        .chat-input-area {
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .chat-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .chat-actions .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 4px;
+        }
+        
+        .chat-input-row {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .chat-input-row textarea {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1.5px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            resize: none;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        
+        .chat-input-row textarea:focus {
+            outline: none;
+            border-color: #4a9fd8;
+        }
+        
+        .chat-send-btn {
+            width: 80px;
+            margin-bottom: 0 !important;
+        }
+        
+        .btn-small:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 清除浮动 */
+        .chat-messages::after {
+            content: '';
+            display: table;
+            clear: both;
+        }
+
+        /* Markdown渲染样式 */
+        .bubble-content pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+
+        .bubble-content code {
+            background: #f5f5f5;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+
+        .bubble-content pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .bubble-content ul, .bubble-content ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+
+        .bubble-content p {
+            margin: 8px 0;
+        }
+
+        .bubble-content p:first-child {
+            margin-top: 0;
+        }
+
+        .bubble-content p:last-child {
+            margin-bottom: 0;
+        }
+    </style>
 
     <script>
         let currentResults = null;
         let currentSearchParams = null;
+        
+        // AI聊天相关变量
+        let chatHistory = [];
+        let chatContext = '';
+        let isStreaming = false;
 
         // 页面加载时初始化
         window.onload = function() {
             loadConfig();
-            loadStats();
         };
 
         // 加载配置
@@ -483,7 +808,13 @@
             const msgDiv = document.getElementById('config-message');
             msgDiv.innerHTML = '<div class="alert alert-info">⏳ 正在加载配置...</div>';
 
-            fetch('/api/config')
+            fetch('/api/config', {
+                method: 'GET',
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-store'
+                }
+            })
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
@@ -502,6 +833,13 @@
                         document.getElementById('chat_name').value = config.default_chat_name || '';
                         document.getElementById('keyword').value = config.default_keyword || '';
                         document.getElementById('delete_keywords').value = config.delete_keywords || '';
+
+                        // 加载LLM配置
+                        document.getElementById('llm_api_base').value = config.llm_api_base || '';
+                        document.getElementById('llm_model').value = config.llm_model || '';
+                        document.getElementById('llm_api_key').value = config.llm_api_key || '';
+                        document.getElementById('llm_temperature').value = config.llm_temperature || 0.7;
+                        document.getElementById('llm_max_tokens').value = config.llm_max_tokens || 2000;
 
                         msgDiv.innerHTML = '<div class="alert alert-success">✓ 配置已加载</div>';
                         setTimeout(() => msgDiv.innerHTML = '', 2000);
@@ -620,23 +958,6 @@
             setTimeout(() => msgDiv.innerHTML = '', 3000);
         }
 
-
-        // 加载统计信息
-        function loadStats() {
-            fetch('/api/stats')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        const stats = data.stats;
-                        document.getElementById('stat-total').textContent = stats.total_messages.toLocaleString();
-                        document.getElementById('stat-chats').textContent = stats.total_chats.toLocaleString();
-                        document.getElementById('stat-senders').textContent = stats.total_senders.toLocaleString();
-                    }
-                })
-                .catch(() => {
-                    // 如果加载失败，保持显示 "-"
-                });
-        }
 
         // 搜索表单提交
         document.getElementById('search-form').onsubmit = function(e) {
@@ -793,6 +1114,429 @@
             div.textContent = text;
             return div.innerHTML;
         }
+
+        // ========== 图片解密功能 ==========
+
+        // 页面加载时检查密钥状态
+        window.addEventListener('load', function() {
+            checkImageKeys();
+        });
+
+        // 提取图片解密密钥
+        function extractImageKeys() {
+            const msgDiv = document.getElementById('image-message');
+
+            msgDiv.innerHTML = '<div class="alert alert-info">⏳ 正在提取密钥...<br><small>提示：系统将自动从配置的数据库路径定位图片目录<br>AES密钥提取需要管理员权限和微信运行中</small></div>';
+
+            fetch('/api/image/extract-keys', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    msgDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>✓ 密钥提取成功</strong><br>
+                            图片目录: ${data.dat_path}<br>
+                            XOR密钥: ${data.xor_key} (0x${data.xor_key.toString(16).toUpperCase()})<br>
+                            ${data.has_aes_key ? 'AES密钥: 已提取 ✓' : '<span style="color: #e67e22;">AES密钥: 未提取 ⚠️（需要管理员权限）</span>'}
+                        </div>
+                    `;
+                    checkImageKeys(); // 更新密钥状态显示
+                } else {
+                    msgDiv.innerHTML = `<div class="alert alert-error"><strong>✗ 提取失败:</strong> ${data.message}</div>`;
+                }
+            })
+            .catch(err => {
+                msgDiv.innerHTML = `<div class="alert alert-error"><strong>✗ 请求失败:</strong> ${err.message}</div>`;
+            });
+        }
+
+        // 转换DAT图片
+        function convertImages() {
+            const msgDiv = document.getElementById('image-message');
+
+            msgDiv.innerHTML = '<div class="alert alert-info">⏳ 正在转换图片...<br><small>仅处理V4格式的.dat文件，转换后输出到 output/images</small></div>';
+
+            fetch('/api/image/convert', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    msgDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>✓ 转换完成</strong><br>
+                            成功: ${data.success_count} 个<br>
+                            失败: ${data.fail_count} 个<br>
+                            图片目录: ${data.dat_dir}<br>
+                            输出目录: ${data.output_dir}
+                        </div>
+                    `;
+                } else {
+                    msgDiv.innerHTML = `<div class="alert alert-error"><strong>✗ 转换失败:</strong> ${data.message}</div>`;
+                }
+            })
+            .catch(err => {
+                msgDiv.innerHTML = `<div class="alert alert-error"><strong>✗ 请求失败:</strong> ${err.message}</div>`;
+            });
+        }
+
+        // 检查密钥状态
+        function checkImageKeys() {
+            fetch('/api/image/get-keys')
+            .then(res => res.json())
+            .then(data => {
+                const statusDiv = document.getElementById('key-status');
+                if (data.success) {
+                    if (data.has_xor_key && data.has_aes_key) {
+                        statusDiv.innerHTML = '<span style="color: #27ae60;">✓ XOR和AES密钥已就绪</span>';
+                        statusDiv.style.background = '#d5f4e6';
+                    } else if (data.has_xor_key) {
+                        statusDiv.innerHTML = '<span style="color: #e67e22;">⚠ 仅有XOR密钥（V4格式需要AES密钥）</span>';
+                        statusDiv.style.background = '#fef5e7';
+                    } else {
+                        statusDiv.innerHTML = '<span style="color: #999;">未找到密钥</span>';
+                        statusDiv.style.background = '#f3f4f6';
+                    }
+                } else {
+                    statusDiv.innerHTML = '<span style="color: #e74c3c;">加载失败</span>';
+                    statusDiv.style.background = '#fadbd8';
+                }
+            })
+            .catch(err => {
+                console.error('检查密钥失败:', err);
+            });
+        }
+
+        // ========== AI大模型问答功能 (OpenAI兼容格式) ==========
+
+        // 从配置加载LLM设置 (通过loadConfig函数自动加载)
+        function loadLLMFromConfig(config) {
+            document.getElementById('llm_api_base').value = config.llm_api_base || '';
+            document.getElementById('llm_api_key').value = config.llm_api_key || '';
+            document.getElementById('llm_temperature').value = config.llm_temperature || 0.7;
+            document.getElementById('llm_max_tokens').value = config.llm_max_tokens || 2000;
+        }
+
+        // 测试LLM连接
+        function testLLMConnection() {
+            const msgDiv = document.getElementById('llm-config-message');
+            const apiBase = document.getElementById('llm_api_base').value;
+            const model = document.getElementById('llm_model').value;
+            const apiKey = document.getElementById('llm_api_key').value;
+            
+            if (!apiBase || !apiKey || !model) {
+                msgDiv.innerHTML = '<div class="alert alert-error">✗ 请先填写API地址、模型名称和API密钥</div>';
+                setTimeout(() => msgDiv.innerHTML = '', 3000);
+                return;
+            }
+            
+            msgDiv.innerHTML = '<div class="alert alert-info">⏳ 正在测试连接...</div>';
+
+            fetch('/api/llm/test', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    api_base: apiBase,
+                    model: model,
+                    api_key: apiKey,
+                    temperature: parseFloat(document.getElementById('llm_temperature').value) || 0.7,
+                    max_tokens: parseInt(document.getElementById('llm_max_tokens').value) || 2000
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    msgDiv.innerHTML = `<div class="alert alert-success">✓ 连接成功！<br><small>${escapeHtml(data.response)}</small></div>`;
+                } else {
+                    msgDiv.innerHTML = `<div class="alert alert-error">✗ ${data.message}</div>`;
+                }
+            })
+            .catch(err => {
+                msgDiv.innerHTML = `<div class="alert alert-error">✗ 连接失败: ${err.message}</div>`;
+            });
+        }
+
+        // 切换配置区域显示/隐藏
+        function toggleConfigArea() {
+            const configArea = document.getElementById('ai-config-area');
+            const toggleBtn = document.getElementById('config-toggle-btn');
+            
+            if (configArea.style.display === 'none') {
+                configArea.style.display = 'block';
+                toggleBtn.style.display = 'none';
+            } else {
+                configArea.style.display = 'none';
+                toggleBtn.style.display = 'block';
+            }
+        }
+
+        // 使用搜索结果作为上下文
+        function useSearchResults() {
+            if (!currentResults || currentResults.length === 0) {
+                alert('请先进行搜索获取结果');
+                return;
+            }
+
+            // 构建上下文文本
+            let contextText = '';
+            currentResults.forEach((msg, idx) => {
+                contextText += `[${idx + 1}] ${msg.time} - ${msg.chat_name} - ${msg.sender}: ${msg.content}\n`;
+            });
+
+            chatContext = contextText;
+            
+            // 显示上下文栏
+            document.getElementById('context-bar').style.display = 'flex';
+            document.getElementById('use-results-btn').disabled = true;
+            
+            // 添加系统消息到聊天区域
+            addSystemMessage(`已加载 ${currentResults.length} 条搜索结果作为上下文`);
+        }
+
+        // 清除上下文
+        function clearContext() {
+            chatContext = '';
+            document.getElementById('context-bar').style.display = 'none';
+            document.getElementById('use-results-btn').disabled = currentResults === null || currentResults.length === 0;
+            addSystemMessage('已清除上下文');
+        }
+
+        // 清空对话
+        function clearChat() {
+            chatHistory = [];
+            chatContext = '';
+            document.getElementById('context-bar').style.display = 'none';
+            document.getElementById('use-results-btn').disabled = currentResults === null || currentResults.length === 0;
+            
+            // 恢复欢迎界面
+            document.getElementById('chat-messages').innerHTML = `
+                <div class="chat-welcome">
+                    <div class="welcome-icon">💬</div>
+                    <h3>AI聊天助手</h3>
+                    <p>配置好大模型后，可以针对搜索结果进行智能问答</p>
+                    <div class="welcome-tips">
+                        <div class="tip">💡 搜索后点击"使用搜索结果"将结果作为上下文</div>
+                        <div class="tip">💡 支持多轮对话，AI会记住上下文</div>
+                        <div class="tip">💡 点击"清空对话"重新开始</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 添加系统消息
+        function addSystemMessage(text) {
+            const messagesContainer = document.getElementById('chat-messages');
+            
+            // 如果是欢迎界面，先清空
+            if (messagesContainer.querySelector('.chat-welcome')) {
+                messagesContainer.innerHTML = '';
+            }
+            
+            const msgDiv = document.createElement('div');
+            msgDiv.style.cssText = 'text-align: center; padding: 8px; color: #666; font-size: 12px; clear: both;';
+            msgDiv.textContent = `--- ${text} ---`;
+            messagesContainer.appendChild(msgDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // 添加消息气泡
+        function addMessageBubble(role, content) {
+            const messagesContainer = document.getElementById('chat-messages');
+            
+            // 如果是欢迎界面，先清空
+            if (messagesContainer.querySelector('.chat-welcome')) {
+                messagesContainer.innerHTML = '';
+            }
+            
+            const bubble = document.createElement('div');
+            bubble.className = `message-bubble ${role}`;
+            
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            
+            bubble.innerHTML = `
+                <div class="bubble-content">${formatMessage(content)}</div>
+                <div class="bubble-time">${timeStr}</div>
+            `;
+            
+            messagesContainer.appendChild(bubble);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            return bubble;
+        }
+
+        // 格式化消息（简单的Markdown支持）
+        function formatMessage(text) {
+            // 转义HTML
+            let html = escapeHtml(text);
+            
+            // 代码块
+            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+            
+            // 行内代码
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // 粗体
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            
+            // 换行
+            html = html.replace(/\n/g, '<br>');
+            
+            return html;
+        }
+
+        // 添加打字指示器
+        function addTypingIndicator() {
+            const messagesContainer = document.getElementById('chat-messages');
+            
+            const indicator = document.createElement('div');
+            indicator.id = 'typing-indicator';
+            indicator.className = 'message-bubble assistant';
+            indicator.innerHTML = `
+                <div class="bubble-content">
+                    <div class="typing-indicator">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(indicator);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // 移除打字指示器
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        // 处理聊天输入框按键事件
+        function handleChatKeydown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendChatMessage();
+            }
+        }
+
+        // 发送聊天消息
+        async function sendChatMessage() {
+            if (isStreaming) return;
+            
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // 检查是否配置了LLM
+            const apiBase = document.getElementById('llm_api_base').value;
+            const apiKey = document.getElementById('llm_api_key').value;
+            const model = document.getElementById('llm_model').value;
+            if (!apiBase || !apiKey || !model) {
+                alert('请先配置API地址、模型名称和API密钥');
+                return;
+            }
+            
+            // 清空输入框
+            input.value = '';
+            
+            // 添加用户消息
+            addMessageBubble('user', message);
+            
+            // 添加到历史
+            chatHistory.push({ role: 'user', content: message });
+            
+            // 显示打字指示器
+            addTypingIndicator();
+            
+            // 禁用发送按钮
+            isStreaming = true;
+            document.getElementById('send-btn').disabled = true;
+            
+            try {
+                // 使用流式API
+                const response = await fetch('/api/llm/chat/stream', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message: message,
+                        context: chatContext,
+                        history: chatHistory.slice(0, -1), // 不包含当前消息
+                        api_base: apiBase,
+                        model: model,
+                        api_key: apiKey,
+                        temperature: parseFloat(document.getElementById('llm_temperature').value) || 0.7,
+                        max_tokens: parseInt(document.getElementById('llm_max_tokens').value) || 2000
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                // 移除打字指示器，添加助手消息气泡
+                removeTypingIndicator();
+                const assistantBubble = addMessageBubble('assistant', '');
+                const contentDiv = assistantBubble.querySelector('.bubble-content');
+                
+                let fullResponse = '';
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.content) {
+                                    fullResponse += data.content;
+                                    contentDiv.innerHTML = formatMessage(fullResponse);
+                                    document.getElementById('chat-messages').scrollTop = 
+                                        document.getElementById('chat-messages').scrollHeight;
+                                } else if (data.error) {
+                                    throw new Error(data.error);
+                                }
+                            } catch (e) {
+                                // 忽略解析错误
+                            }
+                        }
+                    }
+                }
+                
+                // 添加到历史
+                if (fullResponse) {
+                    chatHistory.push({ role: 'assistant', content: fullResponse });
+                }
+                
+            } catch (error) {
+                removeTypingIndicator();
+                addMessageBubble('assistant', `❌ 发生错误: ${error.message}`);
+            } finally {
+                isStreaming = false;
+                document.getElementById('send-btn').disabled = false;
+            }
+        }
+
+        // 搜索完成后启用"使用搜索结果"按钮
+        const originalDisplayResults = displayResults;
+        displayResults = function(results, stats) {
+            originalDisplayResults(results, stats);
+            document.getElementById('use-results-btn').disabled = results.length === 0;
+        };
     </script>
 </body>
 </html>

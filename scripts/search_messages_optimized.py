@@ -11,6 +11,12 @@ import sqlite3
 import hashlib
 from datetime import datetime
 from pathlib import Path
+import zstandard as zstd
+
+# 添加utils路径以导入message_parser
+utils_path = Path(__file__).parent.parent / "utils"
+sys.path.insert(0, str(utils_path))
+
 from message_parser import parse_message_by_type
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -35,20 +41,70 @@ def get_contact_map(contact_db_path):
     return contact_map
 
 
+def extract_path_from_parsed_content(parsed_content):
+    """
+    从解析后的内容中提取路径或URL
+
+    参数:
+        parsed_content: 解析后的消息内容字符串
+
+    返回:
+        提取的路径或URL，如果没有则返回空字符串
+    """
+    if not isinstance(parsed_content, str):
+        return ''
+
+    # 提取文件路径（格式：路径:xxx）
+    if '路径:' in parsed_content:
+        parts = parsed_content.split('路径:')
+        if len(parts) > 1:
+            # 提取路径部分（可能在 | 之前）
+            path_part = parts[1].split('|')[0].strip()
+            return path_part
+
+    # 提取URL链接（格式：链接: xxx）
+    if '链接:' in parsed_content or '链接：' in parsed_content:
+        # 统一处理中英文冒号
+        content_normalized = parsed_content.replace('链接：', '链接:')
+        parts = content_normalized.split('链接:')
+        if len(parts) > 1:
+            # 提取URL部分（可能在 | 之前）
+            url_part = parts[1].split('|')[0].strip()
+            return url_part
+
+    return ''
+
+
 def extract_sender_from_content(content, contact_map):
     """从群聊消息内容中提取发言人wxid"""
     if not content:
         return None, content
 
+    # 处理压缩的content
     if isinstance(content, bytes):
-        try:
-            content = content.decode('utf8', errors='ignore')
-        except:
-            return None, content
+        # 检查是否是zstd压缩 (magic bytes: 0x28 0xB5 0x2F 0xFD)
+        if len(content) >= 4 and content[:4] == b'\x28\xb5\x2f\xfd':
+            try:
+                dctx = zstd.ZstdDecompressor()
+                decompressed = dctx.decompress(content)
+                content = decompressed.decode('utf-8', errors='ignore')
+            except:
+                # 解压失败，尝试直接decode
+                try:
+                    content = content.decode('utf8', errors='ignore')
+                except:
+                    return None, content
+        else:
+            # 不是压缩数据，直接decode
+            try:
+                content = content.decode('utf8', errors='ignore')
+            except:
+                return None, content
 
     if not isinstance(content, str):
         return None, content
 
+    # 提取wxid前缀 (格式: wxid_xxx:\n实际内容)
     if ':\n' in content:
         parts = content.split(':\n', 1)
         if len(parts) == 2:
@@ -75,48 +131,67 @@ class MessageSearcher:
 
         # 只保存数据库路径,不预加载数据
         self.message_dbs = sorted(db_path.glob('message_*.db'))
-        contact_db = db_path / 'contact.db'
+        self.contact_db = db_path / 'contact.db'
 
         if not self.message_dbs:
             raise FileNotFoundError(f"未找到message数据库: {db_path}")
-        if not contact_db.exists():
-            raise FileNotFoundError(f"未找到contact.db: {contact_db}")
+        if not self.contact_db.exists():
+            raise FileNotFoundError(f"未找到contact.db: {self.contact_db}")
 
         print(f"[OK] 找到 {len(self.message_dbs)} 个消息数据库")
 
         # 加载联系人映射
-        self.contact_map = get_contact_map(str(contact_db))
+        self.contact_map = get_contact_map(str(self.contact_db))
         print(f"[OK] 加载 {len(self.contact_map)} 个联系人")
 
-        # 获取用户wxid - 从第一个message数据库的Name2Id表中获取rowid=2对应的user_name
-        self.user_wxid = self._get_user_wxid()
-        if self.user_wxid:
-            print(f"[OK] 检测到用户wxid: {self.user_wxid}")
+        # 从数据库路径中提取用户wxid (例如: output/databases/q453497_ec01 -> q453497)
+        self.user_wxid = self._extract_user_wxid_from_path(db_path)
+
+        # 获取用户所有的ID（包括wxid和QQ号等）
+        self.user_ids = self._get_user_ids()
+        if self.user_ids:
+            print(f"[OK] 检测到用户ID: {', '.join(self.user_ids)}")
         else:
-            print(f"[WARNING] 无法自动检测用户wxid,可能影响发言人判断")
+            print(f"[WARNING] 无法自动检测用户ID,可能影响发言人判断")
 
         print(f"[优化] 搜索器将按需加载数据,只处理符合条件的消息")
 
-    def _get_user_wxid(self):
-        """从Name2Id表中获取用户wxid(通常rowid=2)"""
-        try:
-            if not self.message_dbs:
-                return None
+    def _extract_user_wxid_from_path(self, db_path):
+        """从数据库路径中提取用户wxid
 
-            conn = sqlite3.connect(str(self.message_dbs[0]))
-            cursor = conn.cursor()
+        例如: output/databases/q453497_ec01 -> q453497
+        或: output/databases/wxid_xxx_yyy -> wxid_xxx
+        """
+        import re
 
-            # 尝试获取rowid=2的user_name(通常是用户自己的wxid)
-            cursor.execute('SELECT user_name FROM Name2Id WHERE rowid = 2')
-            result = cursor.fetchone()
-            conn.close()
+        # 获取最后一级目录名 (例如: q453497_ec01)
+        dir_name = db_path.name
 
-            if result:
-                return result[0]
-            return None
-        except Exception as e:
-            print(f"[WARNING] 获取用户wxid失败: {e}")
-            return None
+        # 移除后缀 (_ec01, _随机字符串等)
+        # 匹配模式: wxid_开头 或 纯数字QQ号
+        if dir_name.startswith('wxid_'):
+            # wxid_xxx_yyy -> wxid_xxx
+            match = re.match(r'(wxid_[^_]+)', dir_name)
+            if match:
+                return match.group(1)
+        else:
+            # q453497_ec01 -> q453497 (移除下划线后的部分)
+            match = re.match(r'([^_]+)', dir_name)
+            if match:
+                return match.group(1)
+
+        # 如果匹配失败，返回整个目录名
+        return dir_name
+
+    def _get_user_ids(self):
+        """获取用户所有的ID（直接使用从路径提取的wxid）"""
+        # 用户的主ID就是从路径中提取的wxid
+        user_ids = {self.user_wxid} if self.user_wxid else set()
+
+        if user_ids:
+            print(f"[DEBUG] 用户wxid (从路径提取): {self.user_wxid}")
+
+        return user_ids
 
     def search(self,
                start_date=None,
@@ -133,16 +208,78 @@ class MessageSearcher:
         参数:
             start_date: 开始日期 (格式: 'YYYY-MM-DD')
             end_date: 结束日期 (格式: 'YYYY-MM-DD')
-            chat_name: 聊天对象名称
-            sender_name: 发言人名称
-            keyword: 内容关键词
+            chat_name: 聊天对象名称 (支持单个字符串或列表，逗号分隔)
+            sender_name: 发言人名称 (支持单个字符串或列表，逗号分隔)
+            keyword: 内容关键词 (支持单个字符串或列表，逗号分隔，OR逻辑)
             message_type: 消息类型
-            delete_keywords: 要过滤掉的关键词
+            delete_keywords: 要过滤掉的关键词 (支持单个字符串或列表，逗号分隔，OR逻辑)
             exclude_self: 是否排除自己的消息
 
         返回:
             DataFrame: 搜索结果
         """
+        # 转换chat_name为列表格式
+        if chat_name:
+            if isinstance(chat_name, str):
+                # 支持逗号分隔的字符串（同时支持全角，和半角,）
+                # 先统一替换全角逗号为半角逗号
+                chat_name_normalized = chat_name.replace('，', ',')
+                chat_names = [name.strip() for name in chat_name_normalized.split(',') if name.strip()]
+            elif isinstance(chat_name, list):
+                chat_names = [name.strip() for name in chat_name if name.strip()]
+            else:
+                chat_names = []
+        else:
+            chat_names = []
+
+        # 转换sender_name为列表格式
+        if sender_name:
+            if isinstance(sender_name, str):
+                # 支持逗号分隔的字符串（同时支持全角，和半角,）
+                # 先统一替换全角逗号为半角逗号
+                sender_name_normalized = sender_name.replace('，', ',')
+                sender_names = [name.strip() for name in sender_name_normalized.split(',') if name.strip()]
+            elif isinstance(sender_name, list):
+                sender_names = [name.strip() for name in sender_name if name.strip()]
+            else:
+                sender_names = []
+        else:
+            sender_names = []
+
+        # 转换keyword为列表格式（支持多个关键词，任意一个匹配即可）
+        if keyword:
+            if isinstance(keyword, str):
+                # 支持逗号分隔的字符串（同时支持全角，和半角,）
+                keyword_normalized = keyword.replace('，', ',')
+                keywords = [kw.strip() for kw in keyword_normalized.split(',') if kw.strip()]
+            elif isinstance(keyword, list):
+                keywords = [kw.strip() for kw in keyword if kw.strip()]
+            else:
+                keywords = []
+        else:
+            keywords = []
+
+        # 转换delete_keywords为列表格式（任意一个匹配就过滤掉）
+        if delete_keywords:
+            if isinstance(delete_keywords, str):
+                # 支持逗号分隔的字符串（同时支持全角，和半角,）
+                delete_kw_normalized = delete_keywords.replace('，', ',')
+                delete_kw_list = [kw.strip() for kw in delete_kw_normalized.split(',') if kw.strip()]
+            elif isinstance(delete_keywords, list):
+                delete_kw_list = [kw.strip() for kw in delete_keywords if kw.strip()]
+            else:
+                delete_kw_list = []
+        else:
+            delete_kw_list = []
+
+        if chat_names:
+            print(f"[筛选] 聊天对象: {', '.join(chat_names)}")
+        if sender_names:
+            print(f"[筛选] 发言人: {', '.join(sender_names)}")
+        if keywords:
+            print(f"[筛选] 搜索关键词: {', '.join(keywords)}")
+        if delete_kw_list:
+            print(f"[筛选] 过滤关键词: {', '.join(delete_kw_list)}")
         # 计算时间戳范围(在SQL层面过滤)
         start_timestamp = None
         end_timestamp = None
@@ -164,6 +301,15 @@ class MessageSearcher:
             try:
                 conn = sqlite3.connect(str(db_file))
                 cursor = conn.cursor()
+
+                # 检查是否存在Name2Id表
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Name2Id'")
+                has_name2id = cursor.fetchone() is not None
+
+                if not has_name2id:
+                    # 跳过没有Name2Id表的数据库（如message_resource.db）
+                    conn.close()
+                    continue
 
                 # 获取Name2Id映射
                 cursor.execute('SELECT user_name FROM Name2Id WHERE user_name IS NOT NULL')
@@ -224,37 +370,33 @@ class MessageSearcher:
                                     continue
 
                                 # 保留content原始类型(bytes或str),供后续解析器判断是否压缩
-                                # 只在需要时转换为字符串
                                 original_content = content
-                                content_for_extraction = content
-
-                                # 安全地处理content - 仅用于发言人提取和关键词过滤
-                                if content_for_extraction is not None:
-                                    if isinstance(content_for_extraction, bytes):
-                                        try:
-                                            content_for_extraction = content_for_extraction.decode('utf-8', errors='ignore')
-                                        except:
-                                            content_for_extraction = ''
-                                    elif not isinstance(content_for_extraction, str):
-                                        content_for_extraction = str(content_for_extraction)
-                                else:
-                                    content_for_extraction = ''
 
                                 # 使用sender_username判断是否是自己发的消息(WeChat 4.0正确方法)
-                                is_self = (sender_username == self.user_wxid) if (sender_username and self.user_wxid) else False
+                                # 检查sender_username是否在用户的所有ID中（包括wxid、QQ号等）
+                                is_self = (sender_username in self.user_ids) if (sender_username and self.user_ids) else False
 
                                 # 确定发言人
                                 # 核心逻辑:
                                 # - 使用sender_username(通过real_sender_id JOIN Name2Id获取)来判断发言人
                                 # - 群聊: 优先从content提取wxid,否则用sender_username判断
                                 # - 私聊: 用sender_username判断是否是自己
+                                # 用于解析器的内容(如果群聊中提取了发言人,则去掉wxid前缀)
+                                content_for_parser = original_content
+                                # 用于关键词过滤的内容(字符串格式)
+                                content_for_extraction = ''
+
                                 if is_group:
-                                    # 群聊消息 - 先尝试从content中提取发言人wxid
-                                    sender_wxid, actual_content = extract_sender_from_content(content_for_extraction, self.contact_map)
+                                    # 群聊消息 - 先尝试从原始content中提取发言人wxid
+                                    # extract_sender_from_content会自动处理压缩的content
+                                    sender_wxid, actual_content = extract_sender_from_content(original_content, self.contact_map)
                                     if sender_wxid:
                                         # 从群聊content中成功提取了发言人wxid
                                         sender_name_val = self.contact_map.get(sender_wxid, sender_wxid)
-                                        content_for_extraction = actual_content
+                                        # 重要: 更新用于解析器的内容,去掉wxid前缀
+                                        content_for_parser = actual_content
+                                        # 用于关键词过滤
+                                        content_for_extraction = actual_content if isinstance(actual_content, str) else str(actual_content)
                                     elif is_self:
                                         # 没提取到发言人wxid,但sender_username显示是自己发的
                                         sender_name_val = '我'
@@ -273,46 +415,77 @@ class MessageSearcher:
                                         # sender_username显示是对方发的消息
                                         sender_name_val = chat_display_name
 
-                                # 聊天对象过滤(先过滤聊天对象)
-                                if chat_name and chat_name.lower() not in chat_display_name.lower():
-                                    skipped_count += 1
-                                    continue
+                                # 如果content_for_extraction还是空的，需要转换用于关键词过滤
+                                if not content_for_extraction and original_content:
+                                    if isinstance(original_content, bytes):
+                                        try:
+                                            content_for_extraction = original_content.decode('utf-8', errors='ignore')
+                                        except:
+                                            content_for_extraction = ''
+                                    elif isinstance(original_content, str):
+                                        content_for_extraction = original_content
+                                    else:
+                                        content_for_extraction = str(original_content)
 
+                                # 第一阶段：聊天对象过滤(先过滤聊天对象)
+                                if chat_names:
+                                    # 检查chat_display_name是否匹配任一聊天对象
+                                    chat_match = False
+                                    for cname in chat_names:
+                                        if cname.lower() in chat_display_name.lower():
+                                            chat_match = True
+                                            break
+                                    if not chat_match:
+                                        skipped_count += 1
+                                        continue
+
+                                # 第二阶段：发言人过滤（在聊天对象筛选后进行）
                                 # 排除自己的消息(在确定发言人后判断)
                                 if exclude_self and sender_name_val == '我':
                                     skipped_count += 1
                                     continue
 
                                 # 发言人过滤
-                                if sender_name and sender_name.lower() not in sender_name_val.lower():
-                                    skipped_count += 1
-                                    continue
+                                if sender_names:
+                                    # 检查sender_name_val是否匹配任一发言人
+                                    sender_match = False
+                                    for sname in sender_names:
+                                        if sname.lower() in sender_name_val.lower():
+                                            sender_match = True
+                                            break
+                                    if not sender_match:
+                                        skipped_count += 1
+                                        continue
 
-                                # 关键词过滤 - 使用content_for_extraction(已转为字符串)
-                                if keyword and keyword.lower() not in content_for_extraction.lower():
-                                    skipped_count += 1
-                                    continue
+                                # 关键词过滤 - 支持多个关键词，任意一个匹配即可（OR逻辑）
+                                if keywords:
+                                    # 检查content_for_extraction是否匹配任一关键词
+                                    keyword_match = False
+                                    for kw in keywords:
+                                        if kw.lower() in content_for_extraction.lower():
+                                            keyword_match = True
+                                            break
+                                    if not keyword_match:
+                                        skipped_count += 1
+                                        continue
 
-                                # 删除关键词过滤 - 使用content_for_extraction(已转为字符串)
-                                if delete_keywords:
-                                    if isinstance(delete_keywords, str):
-                                        keywords_list = [kw.strip() for kw in delete_keywords.split(',') if kw.strip()]
-                                    else:
-                                        keywords_list = delete_keywords
-
+                                # 删除关键词过滤 - 支持多个过滤词，任意一个匹配就过滤掉（OR逻辑）
+                                if delete_kw_list:
                                     should_skip = False
-                                    for kw in keywords_list:
+                                    for kw in delete_kw_list:
                                         if kw.lower() in content_for_extraction.lower():
                                             should_skip = True
                                             break
-
                                     if should_skip:
                                         skipped_count += 1
                                         continue
 
-                                # 解析消息内容 - 使用增强的解析器,传入原始content(可能是bytes)和compress_content
-                                # 这样解析器可以检测zstd压缩并正确处理
-                                parsed_content = parse_message_by_type(local_type, original_content, compress_content)
+                                # 解析消息内容 - 使用增强的解析器,传入content_for_parser(群聊中已去掉wxid前缀)、compress_content和create_time
+                                # 这样解析器可以检测zstd压缩并正确处理，同时能构建正确的文件路径
+                                parsed_content = parse_message_by_type(local_type, content_for_parser, compress_content, create_time)
+
+                                # 提取路径或URL
+                                path_or_url = extract_path_from_parsed_content(parsed_content)
 
                                 all_messages.append({
                                     '时间': msg_time,
@@ -320,6 +493,7 @@ class MessageSearcher:
                                     '发言人': sender_name_val,
                                     '消息类型': local_type,
                                     '内容': parsed_content,
+                                    '路径': path_or_url,
                                 })
 
                             except Exception as e:

@@ -24,10 +24,14 @@ def decompress_content(content):
         return str(content)
 
 
-def parse_xml_content(content):
+def parse_xml_content(content, create_time=None):
     """
     解析XML格式的消息内容
     用于类型49(链接/公众号/文件)等
+
+    参数:
+        content: XML字符串
+        create_time: 消息创建时间戳（用于构建文件路径）
     """
     try:
         if isinstance(content, bytes):
@@ -72,8 +76,9 @@ def parse_xml_content(content):
                     parts.append(f'类型:{fileext.upper()}')
                 if md5:
                     parts.append(f'MD5:{md5[:8]}...')
-                    # 添加文件路径
-                    file_path = build_file_path(md5, 'File', fileext)
+                # 使用原始文件名构建路径
+                if title:
+                    file_path = build_file_path(title, 'file', create_time)
                     if file_path:
                         parts.append(f'路径:{file_path}')
 
@@ -229,7 +234,21 @@ def parse_system_message(content):
         return '[系统消息]'
 
     try:
-        if isinstance(content, bytes):
+        # 处理zstd压缩的系统消息
+        if isinstance(content, bytes) and is_zstd_compressed(content):
+            import zstandard as zstd
+            dctx = zstd.ZstdDecompressor()
+            decompressed = dctx.decompress(content)
+
+            # 查找XML起始位置(跳过可能的wxid前缀)
+            xml_start = decompressed.find(b'<?xml')
+            if xml_start >= 0:
+                content_bytes = decompressed[xml_start:]
+            else:
+                content_bytes = decompressed
+
+            content_str = content_bytes.strip(b'\x00').decode('utf-8', errors='ignore')
+        elif isinstance(content, bytes):
             content_str = content.decode('utf-8', errors='ignore')
         else:
             content_str = str(content)
@@ -284,45 +303,76 @@ def format_file_size(size_bytes):
         return str(size_bytes)
 
 
-def build_file_path(md5, file_type='File', ext=''):
+def build_file_path(filename, file_type='file', create_time=None):
     """
-    根据MD5构建可能的文件路径
-    微信文件存储规则: FileStorage/{类型}/{子目录}/{MD5}{扩展名}
+    构建文件路径（基于微信实际存储结构）
+    微信文件存储规则: msg/{类型}/{年-月}/{文件名}
 
     参数:
-        md5: 文件MD5值
-        file_type: 文件类型 (Image/File/Video等)
-        ext: 文件扩展名 (可选)
+        filename: 原始文件名
+        file_type: 文件类型 (image/file/video等，小写)
+        create_time: 消息创建时间戳（用于确定年月目录）
+
+    返回:
+        相对路径，格式: msg/{file_type}/{年-月}/{filename}
     """
-    if not md5:
+    if not filename:
         return None
 
-    # 使用MD5的前2位作为子目录(微信的常见做法)
-    subdir = md5[:2]
+    # 如果有时间戳，提取年月
+    if create_time:
+        from datetime import datetime
+        try:
+            dt = datetime.fromtimestamp(create_time)
+            year_month = f'{dt.year}-{dt.month:02d}'
+        except:
+            year_month = '未知时间'
+    else:
+        year_month = '未知时间'
 
-    # 添加扩展名
-    if ext and not ext.startswith('.'):
-        ext = '.' + ext
-
-    # 构建相对路径(相对于微信数据目录)
-    # 格式: FileStorage/{类型}/{子目录}/{MD5}{扩展名}
-    file_path = f'FileStorage/{file_type}/{subdir}/{md5}{ext}'
+    # 构建相对路径
+    # 格式: msg/{类型}/{年-月}/{文件名}
+    file_path = f'msg/{file_type.lower()}/{year_month}/{filename}'
 
     return file_path
 
 
-def parse_image_content(content):
+def parse_image_content(content, create_time=None):
     """
     解析图片消息的压缩XML内容
     提取MD5、文件大小和存储路径等信息
+
+    参数:
+        content: 可以是压缩的bytes或已解压的XML字符串
+        create_time: 消息创建时间戳（用于构建文件路径）
     """
     try:
-        if isinstance(content, bytes) and is_zstd_compressed(content):
+        # 如果content为空或None，直接返回
+        if not content:
+            return '[图片]'
+
+        xml_str = None
+
+        # 处理已经解压的XML字符串（从群聊中提取后）
+        if isinstance(content, str) and content.strip().startswith('<?xml'):
+            xml_str = content.strip()
+        # 处理压缩的bytes数据
+        elif isinstance(content, bytes) and is_zstd_compressed(content):
             # 解压缩
             dctx = zstd.ZstdDecompressor()
             decompressed = dctx.decompress(content)
-            xml_str = decompressed.strip(b'\x00').decode('utf-8', errors='ignore').strip()
 
+            # 查找XML起始位置(跳过可能的wxid前缀)
+            xml_start = decompressed.find(b'<?xml')
+            if xml_start >= 0:
+                xml_bytes = decompressed[xml_start:]
+            else:
+                xml_bytes = decompressed
+
+            xml_str = xml_bytes.strip(b'\x00').decode('utf-8', errors='ignore').strip()
+
+        # 如果成功获取到XML字符串，解析它
+        if xml_str:
             # 解析XML
             root = ET.fromstring(xml_str)
             img = root.find('.//img')
@@ -341,8 +391,9 @@ def parse_image_content(content):
                     parts.append(f'大小:{size_str}')
 
                 if md5:
-                    # 添加推测的存储路径
-                    file_path = build_file_path(md5, 'Image')
+                    # 图片文件名通常是MD5 (微信没有保存原始文件名)
+                    # 添加存储路径
+                    file_path = build_file_path(md5, 'image', create_time)
                     if file_path:
                         parts.append(f'路径:{file_path}')
 
@@ -350,22 +401,35 @@ def parse_image_content(content):
                     return ' | '.join(parts)
 
         return '[图片]'
-    except:
+    except Exception as e:
+        # 解析失败,返回默认值
         return '[图片]'
 
 
-def parse_file_content(content):
+def parse_file_content(content, create_time=None):
     """
     解析文件消息的压缩XML内容
     提取文件名、大小、MD5等信息
     适用于类型6(文件)等
+
+    参数:
+        content: 消息内容
+        create_time: 消息创建时间戳（用于构建文件路径）
     """
     try:
         if isinstance(content, bytes) and is_zstd_compressed(content):
             # 解压缩
             dctx = zstd.ZstdDecompressor()
             decompressed = dctx.decompress(content)
-            xml_str = decompressed.strip(b'\x00').decode('utf-8', errors='ignore').strip()
+
+            # 查找XML起始位置(跳过可能的wxid前缀)
+            xml_start = decompressed.find(b'<?xml')
+            if xml_start >= 0:
+                xml_bytes = decompressed[xml_start:]
+            else:
+                xml_bytes = decompressed
+
+            xml_str = xml_bytes.strip(b'\x00').decode('utf-8', errors='ignore').strip()
 
             # 解析XML
             root = ET.fromstring(xml_str)
@@ -402,9 +466,9 @@ def parse_file_content(content):
                     if md5:
                         parts.append(f'MD5:{md5[:8]}...')
 
-                    # 文件路径
-                    if md5:
-                        file_path = build_file_path(md5, 'File', fileext)
+                    # 使用原始文件名构建路径
+                    if title:
+                        file_path = build_file_path(title, 'file', create_time)
                         if file_path:
                             parts.append(f'路径:{file_path}')
 
@@ -422,21 +486,37 @@ def parse_file_content(content):
         return '[文件]'
 
 
-def parse_message_by_type(msg_type, content, compress_content=None):
+def parse_message_by_type(msg_type, content, compress_content=None, create_time=None):
     """
     根据消息类型解析内容 - 增强版
     支持处理zstd压缩的message_content
 
     参数:
         msg_type: 消息类型
-        content: message_content字段
+        content: message_content字段（可能是压缩的bytes或已解压的XML字符串）
         compress_content: compress_content字段(可选)
+        create_time: 消息创建时间戳(可选，用于构建文件路径)
 
     返回:
         解析后的可读内容
     """
     # 保留原始content用于特殊类型(如图片)的解析 - 必须在解压前保存!
     original_content = content
+
+    # 如果content已经是XML字符串（从群聊中提取后已解压），直接解析
+    if isinstance(content, str) and content.strip().startswith('<?xml'):
+        try:
+            root = ET.fromstring(content)
+            appmsg = root.find('.//appmsg')
+            if appmsg is not None:
+                type_node = appmsg.find('type')
+                if type_node is not None and type_node.text:
+                    real_type = int(type_node.text)
+                    # 直接解析XML消息
+                    if real_type in [1, 3, 4, 5, 6, 8, 19, 33, 36, 49, 51, 57, 2000, 2001]:
+                        return parse_xml_content(content, create_time)
+        except:
+            pass
 
     # 检测content是否为zstd压缩数据
     # 某些消息的local_type字段异常(如21474836529),但message_content包含压缩的XML
@@ -463,10 +543,10 @@ def parse_message_by_type(msg_type, content, compress_content=None):
                             sourcedisplayname = root.findtext('.//sourcedisplayname', '')
                             if real_type == 5 and sourcedisplayname:
                                 # 直接解析为公众号文章
-                                return parse_xml_content(content)
+                                return parse_xml_content(content, create_time)
                             # 其他类型49的消息也走XML解析
                             elif real_type in [1, 3, 4, 5, 6, 8, 19, 33, 36, 49, 51, 57, 2000, 2001]:
-                                return parse_xml_content(content)
+                                return parse_xml_content(content, create_time)
                 except:
                     pass
         except Exception as e:
@@ -490,12 +570,12 @@ def parse_message_by_type(msg_type, content, compress_content=None):
     # 类型处理映射
     type_handlers = {
         1: lambda: content or '',  # 文本
-        3: lambda: parse_image_content(original_content),  # 图片 - 使用原始bytes
+        3: lambda: parse_image_content(original_content, create_time),  # 图片 - message_content包含zstd压缩的XML
         34: lambda: '[语音]',  # 语音
         43: lambda: '[视频]',  # 视频
         47: lambda: '[表情]',  # 表情包
         48: lambda: '[位置]',  # 位置
-        49: lambda: parse_xml_content(content),  # 链接/公众号/文件
+        49: lambda: parse_xml_content(content, create_time),  # 链接/公众号/文件
         10000: lambda: parse_system_message(compress_content if compress_content else content),  # 系统消息
         10002: lambda: '[撤回了一条消息]',  # 撤回消息
     }

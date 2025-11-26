@@ -11,7 +11,8 @@ from datetime import datetime
 
 class ConfigManager:
     def __init__(self, config_file='config.xlsx'):
-        self.config_file = Path(__file__).parent / config_file
+        # 配置文件在项目根目录,不是utils目录
+        self.config_file = Path(__file__).parent.parent / config_file
         self.config = self.load_config()
 
     def load_config(self):
@@ -55,12 +56,22 @@ class ConfigManager:
             "default_chat_name": "",
             "default_keyword": "",
             "delete_keywords": "",
-            "last_updated": ""
+            "last_updated": "",
+            # LLM大模型配置 (OpenAI兼容格式)
+            "llm_api_base": "https://api.deepseek.com/v1",  # 默认使用DeepSeek API
+            "llm_model": "deepseek-chat",  # 默认模型名称
+            "llm_api_key": "",
+            "llm_temperature": "0.7",
+            "llm_max_tokens": "2000"
         }
 
     def save_config(self, config):
         """保存配置到Excel"""
-        config['last_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # 合并配置：先从当前配置或默认配置开始，然后用新配置更新
+        # 这样可以确保不会丢失任何配置项
+        merged_config = self.config.copy()
+        merged_config.update(config)
+        merged_config['last_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # 配置项说明映射
         descriptions = {
@@ -72,20 +83,26 @@ class ConfigManager:
             'default_chat_name': '默认聊天对象(群名/好友名)',
             'default_keyword': '默认搜索关键词',
             'delete_keywords': '过滤关键词(多个用逗号分隔)',
-            'last_updated': '最后更新时间'
+            'last_updated': '最后更新时间',
+            # LLM配置说明 (OpenAI兼容格式)
+            'llm_api_base': 'API地址(OpenAI兼容格式,如https://api.deepseek.com/v1)',
+            'llm_model': '模型名称(如deepseek-chat, gpt-4o等)',
+            'llm_api_key': 'API密钥',
+            'llm_temperature': '温度参数(0-1,越高越随机)',
+            'llm_max_tokens': '最大生成token数'
         }
 
         # 转换为DataFrame
         data = {
-            '配置项': list(config.keys()),
-            '值': list(config.values()),
-            '说明': [descriptions.get(key, '') for key in config.keys()]
+            '配置项': list(merged_config.keys()),
+            '值': list(merged_config.values()),
+            '说明': [descriptions.get(key, '') for key in merged_config.keys()]
         }
         df = pd.DataFrame(data)
 
         # 保存到Excel
         df.to_excel(self.config_file, index=False, engine='openpyxl')
-        self.config = config
+        self.config = merged_config
         return True
 
     def get(self, key, default=None):
@@ -97,6 +114,17 @@ class ConfigManager:
         self.config[key] = value
         self.save_config(self.config)
 
-    def get_all(self):
-        """获取所有配置"""
+    def get_all(self, reload=False):
+        """获取所有配置
+        
+        Args:
+            reload: 是否重新从文件加载配置
+        """
+        if reload:
+            self.config = self.load_config()
+        return self.config.copy()
+    
+    def reload_config(self):
+        """强制重新从文件加载配置"""
+        self.config = self.load_config()
         return self.config.copy()

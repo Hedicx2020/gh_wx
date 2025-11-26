@@ -6,19 +6,25 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 *.egg-info/
 dist/
 build/
+uv.lock
 
 # 微信数据
-output/
+output/databases/
+output/exports/
+output/images/
+output/debug/
 *.db
 *.db-wal
 *.db-shm
 
 # 配置文件(可能包含敏感信息)
 config.json
+config.xlsx
 
 # IDE
 .vscode/
@@ -31,9 +37,14 @@ config.json
 .DS_Store
 Thumbs.db
 
-# 测试文件
+# 测试和调试文件
 test_*.py
 *_test.py
+debug_*.py
+analyze_*.py
+verify_*.py
+extract_*.py
+test_*.html
 samples_*.txt
 test_*.txt
 
@@ -42,3 +53,14 @@ test_*.txt
 *.log
 *.bak
 nul
+
+# PyInstaller 打包文件
+*.spec
+dist/
+build/
+dist_release/
+
+# Claude Code
+CLAUDE.md
+.claude/
+.specstory/
