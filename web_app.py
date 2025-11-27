@@ -6,7 +6,6 @@
 
 import os
 import platform
-import re
 import subprocess
 import sys
 import traceback
@@ -28,13 +27,14 @@ sys.path.insert(0, str(src_path))
 sys.path.insert(0, str(utils_path))
 sys.path.insert(0, str(scripts_path))
 
-from wechat_decrypt_tool.wechat_decrypt import decrypt_wechat_databases, WeChatDatabaseDecryptor
+from wechat_decrypt_tool.wechat_decrypt import decrypt_wechat_databases
 from wechat_decrypt_tool.logging_config import get_logger
 from search_messages_optimized import MessageSearcher  # 使用优化版搜索器
 from config_manager import ConfigManager
 from wechat_key_extractor import auto_extract_keys, load_keys_from_config, save_keys_to_config
 from dat_to_image import DatImageDecryptor
 from utils.llm_client import OpenAIClient, LLMConfig
+from stock_filter import get_stock_filter, filter_messages_by_markets, preload_stock_data, is_stock_data_loaded
 
 app = Flask(__name__)
 CORS(app)
@@ -98,251 +98,6 @@ def init_searcher():
         return False
 
 
-def find_max_message_db(directory):
-    """
-    查找目录中最大编号的message数据库
-
-    参数:
-        directory: 要搜索的目录路径
-
-    返回:
-        (max_number, db_path) 或 (None, None)
-    """
-    max_num = -1
-    max_path = None
-
-    directory = Path(directory)
-
-    if not directory.exists():
-        return None, None
-
-    # 搜索message_*.db文件
-    pattern = re.compile(r'message_(\d+)\.db$')
-
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            match = pattern.match(file)
-            if match:
-                num = int(match.group(1))
-                if num > max_num:
-                    max_num = num
-                    max_path = os.path.join(root, file)
-
-    if max_num >= 0:
-        return max_num, max_path
-    return None, None
-
-
-def incremental_decrypt(db_storage_path, key, account_name=None):
-    """
-    增量解密：智能解密更新的数据库
-
-    逻辑：
-    1. message_*.db: 只重新解密最大编号的和新增的数据库
-    2. 其他数据库 (contact.db, session.db, sns.db等): 全部重新解密（因为会持续更新）
-    3. 跳过不需要解密的数据库 (key_info.db等)
-
-    参数:
-        db_storage_path: 源数据库路径
-        key: 解密密钥
-        account_name: 账号名称
-
-    返回:
-        解密结果字典
-    """
-    logger = get_logger(__name__)
-
-    # 查找源目录中最大编号的message数据库
-    source_max_num, source_max_path = find_max_message_db(db_storage_path)
-
-    if source_max_num is None:
-        return {
-            "status": "error",
-            "message": "未找到message数据库文件",
-            "total_databases": 0,
-            "successful_count": 0,
-            "failed_count": 0,
-            "output_directory": str(OUTPUT_BASE_DIR.absolute()),
-            "processed_files": [],
-            "failed_files": []
-        }
-
-    # 确定账号名
-    if not account_name:
-        # 从路径中提取账号名：取db_storage的父目录名
-        storage_path = Path(db_storage_path)
-        if storage_path.name == "db_storage":
-            # 如果路径就是db_storage目录，取其父目录名
-            account_name = storage_path.parent.name
-        else:
-            # 如果路径包含db_storage，找到它并取其父目录名
-            path_parts = storage_path.parts
-            for i, part in enumerate(path_parts):
-                if part == "db_storage" and i > 0:
-                    account_name = path_parts[i - 1]
-                    break
-
-        if not account_name or len(account_name) <= 3:
-            account_name = "unknown_account"
-
-    # 查找输出目录中最大编号的message数据库
-    output_dir = OUTPUT_BASE_DIR / account_name
-    output_max_num, output_max_path = find_max_message_db(output_dir)
-
-    # 确定要解密的数据库列表
-    databases_to_decrypt = []
-
-    if output_max_num is None:
-        # 输出目录没有任何message数据库，这是首次解密，应该用完整解密
-        logger.warning("输出目录无message数据库，建议使用首次解密模式")
-        return {
-            "status": "error",
-            "message": "未找到已解密的数据库，请使用首次解密模式",
-            "total_databases": 0,
-            "successful_count": 0,
-            "failed_count": 0,
-            "output_directory": str(output_dir.absolute()),
-            "processed_files": [],
-            "failed_files": []
-        }
-
-    # 策略1：处理 message_*.db 数据库
-    # - 重新解密最大编号的message数据库（output_max_num）
-    # - 解密所有新增的数据库（output_max_num+1 到 source_max_num）
-
-    if source_max_num >= output_max_num:
-        # 重新解密当前最大编号的数据库（可能还在增长）
-        db_name = f"message_{output_max_num}.db"
-        source_db_path = Path(db_storage_path) / "message" / db_name
-        if source_db_path.exists():
-            databases_to_decrypt.append({
-                'path': str(source_db_path),
-                'name': db_name,
-                'number': output_max_num,
-                'reason': '更新'
-            })
-
-        # 解密新增的数据库
-        if source_max_num > output_max_num:
-            for num in range(output_max_num + 1, source_max_num + 1):
-                db_name = f"message_{num}.db"
-                source_db_path = Path(db_storage_path) / "message" / db_name
-                if source_db_path.exists():
-                    databases_to_decrypt.append({
-                        'path': str(source_db_path),
-                        'name': db_name,
-                        'number': num,
-                        'reason': '新增'
-                    })
-    else:
-        # source_max_num < output_max_num，异常情况
-        logger.warning(f"源目录最大编号({source_max_num}) < 输出目录最大编号({output_max_num})")
-        return {
-            "status": "error",
-            "message": f"源目录编号异常: 源目录最大编号({source_max_num}) < 已解密编号({output_max_num})",
-            "total_databases": 0,
-            "successful_count": 0,
-            "failed_count": 0,
-            "output_directory": str(output_dir.absolute()),
-            "processed_files": [],
-            "failed_files": []
-        }
-
-    # 策略2：处理其他需要更新的数据库（contact, session, sns等）
-    # 需要持续更新的数据库列表
-    update_databases = [
-        'contact.db', 'contact_fts.db',
-        'session.db',
-        'sns.db',
-        'favorite.db', 'favorite_fts.db',
-        'emoticon.db',
-        'general.db',
-        'bizchat.db',
-        'biz_message_0.db', 'biz_message_1.db', 'biz_message_2.db', 'biz_message_3.db',
-        'head_image.db',
-        'media_0.db',
-        'hardlink.db',
-        'message_resource.db'
-    ]
-
-    # 查找源目录中的这些数据库
-    storage_path = Path(db_storage_path)
-    for db_name in update_databases:
-        # 在db_storage及其子目录中搜索
-        for root, _, files in os.walk(storage_path):
-            if db_name in files:
-                source_db_path = Path(root) / db_name
-                databases_to_decrypt.append({
-                    'path': str(source_db_path),
-                    'name': db_name,
-                    'number': -1,
-                    'reason': '更新'
-                })
-                break
-
-    logger.info(f"增量解密: {len(databases_to_decrypt)} 个数据库")
-
-    if not databases_to_decrypt:
-        return {
-            "status": "success",
-            "message": "数据库已是最新，无需增量解密",
-            "total_databases": 0,
-            "successful_count": 0,
-            "failed_count": 0,
-            "output_directory": str(output_dir.absolute()),
-            "processed_files": [],
-            "failed_files": []
-        }
-
-    # 创建解密器
-    try:
-        decryptor = WeChatDatabaseDecryptor(key)
-    except ValueError as e:
-        return {
-            "status": "error",
-            "message": f"密钥错误: {e}",
-            "total_databases": len(databases_to_decrypt),
-            "successful_count": 0,
-            "failed_count": len(databases_to_decrypt),
-            "output_directory": str(output_dir.absolute()),
-            "processed_files": [],
-            "failed_files": []
-        }
-
-    # 创建输出目录
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # 执行解密
-    success_count = 0
-    processed_files = []
-    failed_files = []
-
-    for db_info in databases_to_decrypt:
-        db_path = db_info['path']
-        db_name = db_info['name']
-        reason = db_info['reason']
-        output_path = output_dir / db_name
-
-        if decryptor.decrypt_database(db_path, str(output_path)):
-            success_count += 1
-            processed_files.append(str(output_path))
-            logger.info(f"✓ {db_name} [{reason}]")
-        else:
-            failed_files.append(db_path)
-            logger.error(f"✗ {db_name} 解密失败")
-
-    return {
-        "status": "success" if success_count > 0 else "error",
-        "message": f"增量解密完成: 成功 {success_count}/{len(databases_to_decrypt)}",
-        "total_databases": len(databases_to_decrypt),
-        "successful_count": success_count,
-        "failed_count": len(databases_to_decrypt) - success_count,
-        "output_directory": str(output_dir.absolute()),
-        "processed_files": processed_files,
-        "failed_files": failed_files
-    }
-
-
 @app.route('/')
 def index():
     """主页"""
@@ -353,22 +108,14 @@ def index():
 
 @app.route('/api/decrypt', methods=['POST'])
 def decrypt():
-    """解密API端点"""
+    """解密API端点 - 只支持全量解密"""
     try:
         data = request.get_json()
 
-        mode = data.get('mode')  # 'full' 或 'incremental'
         key = data.get('key')
         db_path = data.get('db_path')
-        account_name = data.get('account_name')
 
         # 验证参数
-        if not mode or mode not in ['full', 'incremental']:
-            return jsonify({
-                "status": "error",
-                "message": "无效的解密模式"
-            }), 400
-
         if not key or len(key) != 64:
             return jsonify({
                 "status": "error",
@@ -388,20 +135,11 @@ def decrypt():
                 "message": f"数据库路径不存在: {db_path}"
             }), 400
 
-        # 执行解密
-        if mode == 'full':
-            # 首次解密：解密所有数据库
-            result = decrypt_wechat_databases(
-                db_storage_path=db_path,
-                key=key
-            )
-        else:
-            # 增量解密：只解密最新的message数据库
-            result = incremental_decrypt(
-                db_storage_path=db_path,
-                key=key,
-                account_name=account_name
-            )
+        # 执行全量解密
+        result = decrypt_wechat_databases(
+            db_storage_path=db_path,
+            key=key
+        )
 
         return jsonify(result)
 
@@ -514,6 +252,11 @@ def search():
         # 获取是否排除自己的消息
         exclude_self = data.get('exclude_self') == 'true' or data.get('exclude_self') == True
 
+        # 获取股票市场筛选参数（支持多选）
+        stock_markets = data.get('stock_markets') or []
+        # 是否匹配数字代码（默认False，只匹配名称）
+        match_stock_code = data.get('match_stock_code', False)
+
         # 转换消息类型
         if message_type == '':
             message_type = None
@@ -542,23 +285,34 @@ def search():
                 'sender': str(row['发言人']),
                 'type': int(row['消息类型']),
                 'type_name': get_message_type_name(int(row['消息类型'])),
-                'content': str(row['内容'])[:200]  # 限制内容长度
+                'content': str(row['内容'])  # 显示完整内容
             })
+
+        # 股票市场筛选（如果有选择）
+        original_count = len(results_list)
+        if stock_markets:
+            print(f"[股票筛选] 选择的市场: {stock_markets}, 匹配代码: {match_stock_code}, 筛选前数量: {original_count}")
+            results_list = filter_messages_by_markets(results_list, stock_markets, match_code=match_stock_code)
+            print(f"[股票筛选] 筛选后数量: {len(results_list)}")
 
         # 统计信息
         stats = {
-            'total': len(results),
-            'displayed': len(results_list),
-            'chat_count': results['聊天对象'].nunique() if len(results) > 0 else 0,
-            'sender_count': results['发言人'].nunique() if len(results) > 0 else 0
+            'total': original_count,  # 筛选前的总数
+            'displayed': len(results_list),  # 筛选后显示的数量
+            'chat_count': len(set(r['chat_name'] for r in results_list)) if results_list else 0,
+            'sender_count': len(set(r['sender'] for r in results_list)) if results_list else 0,
+            'stock_filtered': bool(stock_markets),  # 是否进行了股票筛选
+            'stock_markets': stock_markets  # 筛选的市场
         }
 
-        # 消息类型分布
-        if len(results) > 0:
-            type_dist = results['消息类型'].value_counts().head(5).to_dict()
-            stats['type_distribution'] = {
-                get_message_type_name(k): int(v) for k, v in type_dist.items()
-            }
+        # 消息类型分布（基于筛选后的结果）
+        if results_list:
+            type_counts = {}
+            for r in results_list:
+                type_name = r['type_name']
+                type_counts[type_name] = type_counts.get(type_name, 0) + 1
+            # 取前5个
+            stats['type_distribution'] = dict(sorted(type_counts.items(), key=lambda x: -x[1])[:5])
         else:
             stats['type_distribution'] = {}
 
@@ -702,6 +456,63 @@ def get_stats():
         return jsonify({
             'success': False,
             'message': str(e)
+        })
+
+
+@app.route('/api/stock/stats', methods=['GET'])
+def get_stock_stats():
+    """获取股票数据统计信息"""
+    try:
+        loaded = is_stock_data_loaded()
+        stock_filter = get_stock_filter()
+        db_status = stock_filter.get_db_status()
+        
+        # 只有在数据已加载时才获取统计
+        if loaded:
+            stats = stock_filter.get_market_stats()
+        else:
+            stats = {'a_stock': 0, 'hk_stock': 0, 'us_stock': 0}
+        
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'loaded': loaded,
+            'db_status': db_status,
+            'markets': {
+                'a_stock': 'A股',
+                'hk_stock': '港股',
+                'us_stock': '美股'
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'loaded': False,
+            'message': f'获取股票统计失败: {str(e)}'
+        })
+
+
+@app.route('/api/stock/preload', methods=['POST'])
+def preload_stocks_api():
+    """手动触发股票数据预加载"""
+    try:
+        if is_stock_data_loaded():
+            return jsonify({
+                'success': True,
+                'message': '股票数据已加载'
+            })
+        
+        # 同步加载
+        preload_stock_data()
+        
+        return jsonify({
+            'success': True,
+            'message': '股票数据加载完成'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'加载失败: {str(e)}'
         })
 
 
@@ -1076,6 +887,9 @@ def test_llm_connection():
 
 
 if __name__ == '__main__':
+    import webbrowser
+    import threading
+    
     # 初始化搜索器
     print("正在初始化搜索器...")
     if init_searcher():
@@ -1083,20 +897,28 @@ if __name__ == '__main__':
     else:
         print("⚠ 搜索器初始化失败,请先解密数据库")
 
+    # 后台预加载股票数据
+    def preload_stocks():
+        try:
+            preload_stock_data()
+        except Exception as e:
+            print(f"⚠ 股票数据预加载失败: {e}")
+    
+    threading.Thread(target=preload_stocks, daemon=True).start()
+
     print("\n" + "=" * 60)
     print("微信数据库解密与聊天记录搜索 - 集成Web应用")
     print("=" * 60)
     print(f"\n访问地址: http://127.0.0.1:5000")
     print(f"输出目录: {OUTPUT_BASE_DIR.absolute()}")
     print("\n功能:")
-    print("  1. 数据库解密 (首次/增量)")
+    print("  1. 数据库解密")
     print("  2. 聊天记录搜索")
     print("  3. 配置管理")
+    print("  4. 股票筛选 (A股/港股/美股)")
     print("\n按 Ctrl+C 停止服务器\n")
 
     # 自动打开浏览器
-    import webbrowser
-    import threading
     def open_browser():
         import time
         time.sleep(1.5)  # 等待服务器启动

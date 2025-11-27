@@ -60,11 +60,11 @@ class WeChatLogger:
         """设置日志配置"""
         # 创建日志目录
         now = datetime.now()
-        log_dir = Path("output/logs") / str(now.year) / f"{now.month:02d}" / f"{now.day:02d}"
+        log_dir = Path("output/logs")
         log_dir.mkdir(parents=True, exist_ok=True)
         
-        # 设置日志文件名
-        date_str = now.strftime("%d")
+        # 设置日志文件名（直接用日期命名）
+        date_str = now.strftime("%Y-%m-%d")
         self.log_file = log_dir / f"{date_str}_wechat_tool.log"
         
         # 清除现有的处理器

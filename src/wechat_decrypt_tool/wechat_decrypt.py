@@ -296,6 +296,8 @@ def decrypt_wechat_databases(db_storage_path: str = None, key: str = None) -> di
 
             databases = []
             # 使用递归查找，与自动检测逻辑一致
+            # 只解密 contact, media, message 相关的数据库
+            allowed_prefixes = ['contact', 'media', 'message']
             for root, dirs, files in os.walk(storage_path):
                 # 只处理db_storage目录下的数据库文件
                 if "db_storage" not in str(root):
@@ -305,6 +307,9 @@ def decrypt_wechat_databases(db_storage_path: str = None, key: str = None) -> di
                         continue
                     # 排除不需要解密的数据库
                     if file_name in ["key_info.db", "message_fts.db"]:
+                        continue
+                    # 只保留 contact, media, message 相关的数据库
+                    if not any(file_name.startswith(prefix) for prefix in allowed_prefixes):
                         continue
                     db_path = os.path.join(root, file_name)
                     databases.append({
