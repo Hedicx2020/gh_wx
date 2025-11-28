@@ -35,12 +35,15 @@ from wechat_key_extractor import auto_extract_keys, load_keys_from_config, save_
 from dat_to_image import DatImageDecryptor
 from utils.llm_client import OpenAIClient, LLMConfig
 from stock_filter import get_stock_filter, filter_messages_by_markets, preload_stock_data, is_stock_data_loaded
+from stock_kline import get_stock_info, get_kline_data, generate_kline_chart
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
 CORS(app)
 app.config['JSON_AS_ASCII'] = False
 app.config['TEMPLATES_AUTO_RELOAD'] = True  # 模板自动重载
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用静态文件缓存
 app.jinja_env.auto_reload = True
+app.jinja_env.cache = {}  # 清除Jinja模板缓存
 
 # 全局配置
 OUTPUT_BASE_DIR = Path(__file__).parent / "output" / "databases"
@@ -195,13 +198,41 @@ def get_config():
 
     response = jsonify({
         'success': True,
-        'config': config
+        'config': config,
+        'debug': {
+            'config_file': str(fresh_config_manager.config_file),
+            'file_exists': fresh_config_manager.config_file.exists()
+        }
     })
     # 禁用浏览器/代理缓存，避免返回旧配置
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
+
+
+@app.route('/api/config/debug', methods=['GET'])
+def debug_config():
+    """调试配置文件读取"""
+    import pandas as pd
+    from pathlib import Path
+    
+    result = {
+        'cwd': str(Path.cwd()),
+        'config_file': str(Path.cwd() / 'config.xlsx'),
+        'file_exists': (Path.cwd() / 'config.xlsx').exists(),
+    }
+    
+    try:
+        df = pd.read_excel(Path.cwd() / 'config.xlsx', engine='openpyxl')
+        result['columns'] = df.columns.tolist()
+        result['rows'] = []
+        for idx, row in df.iterrows():
+            result['rows'].append(dict(row))
+    except Exception as e:
+        result['error'] = str(e)
+    
+    return jsonify(result)
 
 
 @app.route('/api/config', methods=['POST'])
@@ -513,6 +544,130 @@ def preload_stocks_api():
         return jsonify({
             'success': False,
             'message': f'加载失败: {str(e)}'
+        })
+
+
+@app.route('/api/stock/review', methods=['POST'])
+def stock_review():
+    """股票K线复盘接口"""
+    global searcher
+
+    try:
+        data = request.json
+        
+        code = data.get('code', '').strip()
+        start_date = data.get('start_date', '')
+        end_date = data.get('end_date', '')
+        
+        if not code:
+            return jsonify({
+                'success': False,
+                'message': '请输入股票代码'
+            })
+        
+        if not start_date or not end_date:
+            return jsonify({
+                'success': False,
+                'message': '请选择日期范围'
+            })
+        
+        # 获取股票信息
+        try:
+            stock_info = get_stock_info(code)
+            stock_name = stock_info.get('name', '')
+            stock_code = stock_info.get('code', code)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'获取股票信息失败: {str(e)}'
+            })
+        
+        # 获取K线数据
+        try:
+            kline_data = get_kline_data(code, start_date, end_date)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'获取K线数据失败: {str(e)}'
+            })
+        
+        # 搜索相关聊天记录
+        messages = []
+        if searcher is None:
+            init_searcher()
+        
+        if searcher is not None and stock_name:
+            try:
+                # 搜索包含股票名称的聊天记录
+                results = searcher.search(
+                    start_date=start_date,
+                    end_date=end_date,
+                    keyword=stock_name,
+                    message_type=1  # 只搜索文本消息
+                )
+                
+                # 转换为列表格式并去重
+                seen = set()
+                for idx, row in results.iterrows():
+                    time_str = row['时间'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(row['时间']) else ''
+                    date_only = time_str.split(' ')[0]
+                    chat_name = str(row['聊天对象'])
+                    sender = str(row['发言人'])
+                    content = str(row['内容'])
+                    
+                    # 去重: 同一日+聊天对象+发送者+内容
+                    dedup_key = f"{date_only}|{chat_name}|{sender}|{content}"
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+                    
+                    messages.append({
+                        'time': time_str,
+                        'chat_name': chat_name,
+                        'sender': sender,
+                        'content': content
+                    })
+            except Exception as e:
+                print(f"[复盘] 搜索聊天记录失败: {e}")
+        
+        # 生成K线图
+        try:
+            chart_html = generate_kline_chart(
+                kline_data,
+                messages,
+                stock_name=stock_name,
+                stock_code=stock_code
+            )
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'生成K线图失败: {str(e)}'
+            })
+        
+        # 按日期分组消息
+        messages_by_date = {}
+        for msg in messages:
+            date = msg['time'].split(' ')[0]
+            if date not in messages_by_date:
+                messages_by_date[date] = []
+            messages_by_date[date].append(msg)
+        
+        return jsonify({
+            'success': True,
+            'stock_name': stock_name,
+            'stock_code': stock_code,
+            'chart_html': chart_html,
+            'messages': messages,
+            'messages_by_date': messages_by_date,
+            'message_count': len(messages),
+            'kline_count': len(kline_data)
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'复盘失败: {str(e)}'
         })
 
 

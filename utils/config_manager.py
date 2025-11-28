@@ -11,39 +11,57 @@ from datetime import datetime
 
 class ConfigManager:
     def __init__(self, config_file='config.xlsx'):
-        # 配置文件在项目根目录,不是utils目录
-        self.config_file = Path(__file__).parent.parent / config_file
+        # 配置文件在当前工作目录（exe运行目录）
+        self.config_file = Path.cwd() / config_file
         self.config = self.load_config()
 
     def load_config(self):
         """从Excel加载配置文件"""
+        print(f"[配置管理] 当前工作目录: {Path.cwd()}")
+        print(f"[配置管理] 配置文件路径: {self.config_file}")
+
         if self.config_file.exists():
             try:
                 df = pd.read_excel(self.config_file, engine='openpyxl')
-                # 将DataFrame转换为字典
+                print(f"[配置管理] Excel列: {df.columns.tolist()}")
+
                 config = {}
-                for _, row in df.iterrows():
-                    key = row['配置项']
-                    value = row['值']
-
-                    # 处理空值
-                    if pd.isna(value):
-                        value = ""
-                    # 处理日期时间对象
-                    elif isinstance(value, pd.Timestamp):
-                        # 只保留日期部分
-                        value = value.strftime('%Y-%m-%d')
-                    # 转换为字符串
-                    elif not isinstance(value, str):
-                        value = str(value)
-
-                    config[key] = value
+                
+                # 检查是纵向格式（配置项, 值）还是横向格式（每列一个配置项）
+                if '配置项' in df.columns and '值' in df.columns:
+                    # 纵向格式：第一列是配置项名称，第二列是值
+                    for _, row in df.iterrows():
+                        print(f"[配置管理] 行: {row.to_dict()}")
+                        key = row['配置项']
+                        value = row['值']
+                        config[key] = self._process_value(value)
+                else:
+                    # 横向格式：每列名就是配置项，第一行是值
+                    print("[配置管理] 检测到横向格式")
+                    for col in df.columns:
+                        if not col.startswith('Unnamed'):
+                            value = df[col].iloc[0] if len(df) > 0 else ""
+                            config[col] = self._process_value(value)
+                
                 return config
             except Exception as e:
                 print(f"加载配置失败: {e}")
                 return self.get_default_config()
         else:
             return self.get_default_config()
+    
+    def _process_value(self, value):
+        """处理配置值"""
+        # 处理空值
+        if pd.isna(value):
+            return ""
+        # 处理日期时间对象
+        elif isinstance(value, pd.Timestamp):
+            return value.strftime('%Y-%m-%d')
+        # 转换为字符串
+        elif not isinstance(value, str):
+            return str(value)
+        return value
 
     def get_default_config(self):
         """获取默认配置"""
