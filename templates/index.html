@@ -1813,37 +1813,43 @@
             // 使用 iframe 渲染K线图（避免脚本执行问题）
             const iframe = document.getElementById('kline-chart-iframe');
             
-            // 构建完整的 HTML 文档
-            const fullHtml = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"><\/script>
-                    <style>
-                        body { margin: 0; padding: 0; background: #fff; }
-                    </style>
-                </head>
-                <body>
-                    ${data.chart_html}
-                </body>
-                </html>
-            `;
+            // 构建完整的 HTML 文档（使用数组拼接避免模板字符串问题）
+            const htmlParts = [
+                '<!DOCTYPE html>',
+                '<html>',
+                '<head>',
+                '<meta charset="UTF-8">',
+                '<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"><' + '/script>',
+                '<style>body { margin: 0; padding: 0; background: #fff; }<' + '/style>',
+                '<' + '/head>',
+                '<body>',
+                data.chart_html,
+                '<' + '/body>',
+                '<' + '/html>'
+            ];
+            const fullHtml = htmlParts.join('\n');
             
-            // 使用 srcdoc 设置 iframe 内容
-            iframe.srcdoc = fullHtml;
+            // 调试：输出 chart_html 长度
+            console.log('chart_html 长度:', data.chart_html ? data.chart_html.length : 0);
+            console.log('fullHtml 长度:', fullHtml.length);
+            
+            // 使用 Blob URL 设置 iframe 内容（更安全）
+            const blob = new Blob([fullHtml], { type: 'text/html; charset=utf-8' });
+            const blobUrl = URL.createObjectURL(blob);
+            console.log('Blob URL:', blobUrl);
+            iframe.src = blobUrl;
             
             // 调整 iframe 高度
             iframe.onload = function() {
-                try {
-                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    const chartDiv = iframeDoc.querySelector('div[id]');
-                    if (chartDiv) {
-                        console.log('K线图渲染成功');
-                    }
-                } catch (e) {
-                    console.log('K线图加载完成');
-                }
+                console.log('iframe onload 触发');
+                // 释放 Blob URL
+                URL.revokeObjectURL(blobUrl);
+                console.log('K线图渲染完成');
+            };
+            
+            // 添加错误处理
+            iframe.onerror = function(e) {
+                console.error('iframe 加载错误:', e);
             };
             
             // 显示相关聊天记录

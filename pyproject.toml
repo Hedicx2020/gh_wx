@@ -1,6 +1,6 @@
 [project]
 name = "gh-wx-tool"
-version = "1.0.0"
+version = "2.0.0"
 description = "WeChat database decryption and message search tool"
 readme = "README.md"
 requires-python = ">=3.8"

@@ -24,14 +24,31 @@ class StockKlineReview:
         """确保已登录 baostock"""
         if not self._logged_in:
             lg = bs.login()
+            print(f"[baostock] 登录结果: {lg.error_code} - {lg.error_msg}")
             if lg.error_code != '0':
                 raise Exception(f"baostock登录失败: {lg.error_msg}")
             self._logged_in = True
     
+    def _force_relogin(self):
+        """强制重新登录"""
+        try:
+            bs.logout()
+        except:
+            pass
+        self._logged_in = False
+        lg = bs.login()
+        print(f"[baostock] 重新登录: {lg.error_code} - {lg.error_msg}")
+        if lg.error_code != '0':
+            raise Exception(f"baostock登录失败: {lg.error_msg}")
+        self._logged_in = True
+    
     def _logout(self):
         """登出 baostock"""
         if self._logged_in:
-            bs.logout()
+            try:
+                bs.logout()
+            except:
+                pass
             self._logged_in = False
     
     def get_stock_info(self, code: str) -> Dict:
@@ -44,9 +61,8 @@ class StockKlineReview:
         Returns:
             {'code': 'sh.600000', 'name': '浦发银行', 'market': 'sh'}
         """
-        # 重新登录确保会话有效
-        self._logout()
-        self._ensure_login()
+        # 强制重新登录确保会话有效
+        self._force_relogin()
         
         # 标准化股票代码
         normalized_code = self._normalize_code(code)
@@ -175,9 +191,11 @@ class StockKlineReview:
         Returns:
             DataFrame with columns: date, open, high, low, close, volume, amount, turn
         """
+        # 确保登录（不重复登录，使用已有会话）
         self._ensure_login()
         
         normalized_code = self._normalize_code(code)
+        print(f"[K线数据] 查询: {normalized_code}, 日期: {start_date} ~ {end_date}")
         
         rs = bs.query_history_k_data_plus(
             normalized_code,
@@ -188,6 +206,8 @@ class StockKlineReview:
             adjustflag="2"  # 前复权
         )
         
+        print(f"[K线数据] 返回码: {rs.error_code}, 消息: {rs.error_msg}")
+        
         if rs.error_code != '0':
             raise Exception(f"获取K线数据失败: {rs.error_msg}")
         
@@ -195,8 +215,10 @@ class StockKlineReview:
         while rs.next():
             data_list.append(rs.get_row_data())
         
+        print(f"[K线数据] 获取到 {len(data_list)} 条数据")
+        
         if not data_list:
-            raise Exception(f"未获取到K线数据，请检查日期范围")
+            raise Exception(f"未获取到K线数据，请检查日期范围(代码:{normalized_code})")
         
         df = pd.DataFrame(data_list, columns=rs.fields)
         
@@ -340,43 +362,21 @@ class StockKlineReview:
                     border_width=1,
                     textstyle_opts=opts.TextStyleOpts(color="#333"),
                     formatter=JsCode(
-                        """function(params){
-                            var date = params[0].axisValue;
-                            var res = '<div style="font-family: Courier New, monospace; max-width: 400px;">';
-                            res += '<div style="font-weight:bold; color:#4a9fd8; border-bottom:1px dashed #ccc; padding-bottom:5px; margin-bottom:8px;">[' + date + ']</div>';
-                            if(params[0] && params[0].data){
-                                var d = params[0].data;
-                                var change = ((d[2] - d[1]) / d[1] * 100).toFixed(2);
-                                var changeColor = change >= 0 ? '#ec0000' : '#00da3c';
-                                res += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">';
-                                res += '<span>开: ' + d[1] + '</span>';
-                                res += '<span>收: <span style="color:'+changeColor+'">' + d[2] + '</span></span>';
-                                res += '<span>低: ' + d[3] + '</span>';
-                                res += '<span>高: ' + d[4] + '</span>';
-                                res += '<span style="color:'+changeColor+'">(' + (change >= 0 ? '+' : '') + change + '%)</span>';
-                                res += '</div>';
-                            }
-                            // 显示当天聊天记录
-                            if(window.KLINE_MESSAGES && window.KLINE_MESSAGES[date]){
-                                var msgs = window.KLINE_MESSAGES[date];
-                                res += '<div style="border-top:1px solid #eee; padding-top:8px; margin-top:5px;">';
-                                res += '<div style="color:#4a9fd8; font-size:11px; margin-bottom:5px;">📝 聊天记录 (' + msgs.length + '条)</div>';
-                                var showCount = Math.min(msgs.length, 5);
-                                for(var i=0; i<showCount; i++){
-                                    var m = msgs[i];
-                                    var content = m.content.length > 60 ? m.content.substring(0,60)+'...' : m.content;
-                                    res += '<div style="font-size:11px; padding:4px 0; border-bottom:1px dotted #eee;">';
-                                    res += '<span style="color:#666;">[' + m.sender + ']</span> ';
-                                    res += '<span style="color:#333;">' + content + '</span>';
-                                    res += '</div>';
-                                }
-                                if(msgs.length > 5){
-                                    res += '<div style="font-size:10px; color:#999; text-align:center; padding-top:5px;">... 还有 ' + (msgs.length - 5) + ' 条消息</div>';
-                                }
-                                res += '</div>';
-                            }
-                            return res + '</div>';
-                        }"""
+                        "function(params){"
+                        "var date=params[0].axisValue;"
+                        "var r='<b>'+date+'</b><br/>';"
+                        "if(params[0]&&params[0].data){"
+                        "var d=params[0].data;"
+                        "r+='开:'+d[1]+' 收:'+d[2]+'<br/>';"
+                        "r+='低:'+d[3]+' 高:'+d[4]+'<br/>';}"
+                        "if(window.KLINE_MESSAGES&&window.KLINE_MESSAGES[date]){"
+                        "var ms=window.KLINE_MESSAGES[date];"
+                        "r+='<br/><b>聊天('+ms.length+'条)</b><br/>';"
+                        "for(var i=0;i<Math.min(ms.length,3);i++){"
+                        "var m=ms[i];"
+                        "var c=m.content.length>30?m.content.substring(0,30)+'...':m.content;"
+                        "r+='['+m.sender+']'+c+'<br/>';}}"
+                        "return r;}"
                     )
                 ),
                 datazoom_opts=[
