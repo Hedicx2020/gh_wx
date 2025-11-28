@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>国海微信数据筛选工具 v1.2 - TERMINAL</title>
+    <!-- ECharts CDN for K-line chart -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         :root {
             --primary-blue: #4a9fd8;
@@ -1812,17 +1814,44 @@
             // 嵌入K线图HTML
             chartDiv.innerHTML = data.chart_html;
             
-            // 执行K线图中的脚本
+            // 执行K线图中的脚本 - 使用 eval 确保脚本正确执行
             const scripts = chartDiv.querySelectorAll('script');
             scripts.forEach(script => {
-                const newScript = document.createElement('script');
                 if (script.src) {
+                    // 外部脚本 - 动态加载
+                    const newScript = document.createElement('script');
                     newScript.src = script.src;
+                    document.body.appendChild(newScript);
                 } else {
-                    newScript.textContent = script.textContent;
+                    // 内联脚本 - 使用 eval 执行
+                    try {
+                        eval(script.textContent);
+                    } catch (e) {
+                        console.error('K线图脚本执行错误:', e);
+                    }
                 }
-                document.body.appendChild(newScript);
             });
+            
+            // 如果图表没有渲染，尝试手动初始化
+            setTimeout(() => {
+                const chartElement = chartDiv.querySelector('div[_echarts_instance_]');
+                if (!chartElement) {
+                    // 查找图表容器并重新初始化
+                    const containers = chartDiv.querySelectorAll('div[id]');
+                    containers.forEach(container => {
+                        if (container.id && container.style.width && container.style.height) {
+                            try {
+                                const existingChart = echarts.getInstanceByDom(container);
+                                if (existingChart) {
+                                    existingChart.resize();
+                                }
+                            } catch (e) {
+                                console.log('图表检查:', e);
+                            }
+                        }
+                    });
+                }
+            }, 100);
             
             // 显示相关聊天记录
             if (data.messages && data.messages.length > 0) {

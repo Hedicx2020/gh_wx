@@ -424,10 +424,15 @@ class StockKlineReview:
         # 渲染为HTML
         html = grid.render_embed()
         
-        # 添加聊天记录标注的交互脚本
-        if mark_points:
+        # 移除内嵌的 echarts 库引用（前端已加载CDN版本）
+        import re
+        html = re.sub(r'<script[^>]*src="[^"]*echarts[^"]*"[^>]*></script>', '', html)
+        
+        # 添加聊天记录数据的JavaScript（供tooltip使用）
+        if msg_by_date:
             msg_data_js = self._generate_message_data_js(msg_by_date, dates)
-            html = html.replace('</body>', f'{msg_data_js}</body>')
+            # 将消息数据放在图表脚本之前
+            html = msg_data_js + html
         
         return html
     
