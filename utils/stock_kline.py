@@ -280,16 +280,45 @@ class StockKlineReview:
                 tooltip_opts=opts.TooltipOpts(
                     trigger="axis",
                     axis_pointer_type="cross",
+                    background_color="rgba(255,255,255,0.95)",
+                    border_color="#4a9fd8",
+                    border_width=1,
+                    textstyle_opts=opts.TextStyleOpts(color="#333"),
                     formatter=JsCode(
                         """function(params){
-                            var res = '<div style="font-family: Courier New, monospace;">';
-                            res += '<b>' + params[0].axisValue + '</b><br/>';
+                            var date = params[0].axisValue;
+                            var res = '<div style="font-family: Courier New, monospace; max-width: 400px;">';
+                            res += '<div style="font-weight:bold; color:#4a9fd8; border-bottom:1px dashed #ccc; padding-bottom:5px; margin-bottom:8px;">[' + date + ']</div>';
                             if(params[0] && params[0].data){
                                 var d = params[0].data;
-                                res += '开盘: ' + d[1] + '<br/>';
-                                res += '收盘: ' + d[2] + '<br/>';
-                                res += '最低: ' + d[3] + '<br/>';
-                                res += '最高: ' + d[4] + '<br/>';
+                                var change = ((d[2] - d[1]) / d[1] * 100).toFixed(2);
+                                var changeColor = change >= 0 ? '#ec0000' : '#00da3c';
+                                res += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">';
+                                res += '<span>开: ' + d[1] + '</span>';
+                                res += '<span>收: <span style="color:'+changeColor+'">' + d[2] + '</span></span>';
+                                res += '<span>低: ' + d[3] + '</span>';
+                                res += '<span>高: ' + d[4] + '</span>';
+                                res += '<span style="color:'+changeColor+'">(' + (change >= 0 ? '+' : '') + change + '%)</span>';
+                                res += '</div>';
+                            }
+                            // 显示当天聊天记录
+                            if(window.KLINE_MESSAGES && window.KLINE_MESSAGES[date]){
+                                var msgs = window.KLINE_MESSAGES[date];
+                                res += '<div style="border-top:1px solid #eee; padding-top:8px; margin-top:5px;">';
+                                res += '<div style="color:#4a9fd8; font-size:11px; margin-bottom:5px;">📝 聊天记录 (' + msgs.length + '条)</div>';
+                                var showCount = Math.min(msgs.length, 5);
+                                for(var i=0; i<showCount; i++){
+                                    var m = msgs[i];
+                                    var content = m.content.length > 60 ? m.content.substring(0,60)+'...' : m.content;
+                                    res += '<div style="font-size:11px; padding:4px 0; border-bottom:1px dotted #eee;">';
+                                    res += '<span style="color:#666;">[' + m.sender + ']</span> ';
+                                    res += '<span style="color:#333;">' + content + '</span>';
+                                    res += '</div>';
+                                }
+                                if(msgs.length > 5){
+                                    res += '<div style="font-size:10px; color:#999; text-align:center; padding-top:5px;">... 还有 ' + (msgs.length - 5) + ' 条消息</div>';
+                                }
+                                res += '</div>';
                             }
                             return res + '</div>';
                         }"""
