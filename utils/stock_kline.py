@@ -44,71 +44,86 @@ class StockKlineReview:
         Returns:
             {'code': 'sh.600000', 'name': '浦发银行', 'market': 'sh'}
         """
+        # 重新登录确保会话有效
+        self._logout()
         self._ensure_login()
         
         # 标准化股票代码
         normalized_code = self._normalize_code(code)
         market = 'sh' if normalized_code.startswith('sh') else 'sz'
+        stock_name = ''
         
-        # 尝试方法1: 直接查询股票基本信息
+        # 方法1: 从全部股票列表中查找名称
         try:
-            rs = bs.query_stock_basic(code=normalized_code)
+            print(f"[股票信息] 查询股票: {normalized_code}")
+            rs = bs.query_all_stock(day=None)  # 获取最新交易日的股票列表
             if rs.error_code == '0':
-                data_list = []
                 while rs.next():
-                    data_list.append(rs.get_row_data())
-                
-                if data_list:
-                    fields = rs.fields
-                    row = data_list[0]
-                    info = dict(zip(fields, row))
-                    return {
-                        'code': normalized_code,
-                        'name': info.get('code_name', ''),
-                        'market': market,
-                        'industry': info.get('industry', ''),
-                        'ipoDate': info.get('ipoDate', '')
-                    }
+                    row = rs.get_row_data()
+                    if len(row) >= 2 and row[0] == normalized_code:
+                        stock_name = row[2] if len(row) > 2 else row[1]
+                        print(f"[股票信息] 找到股票名称: {stock_name}")
+                        break
         except Exception as e:
-            print(f"[股票信息] 方法1失败: {e}")
+            print(f"[股票信息] 方法1(query_all_stock)失败: {e}")
         
-        # 尝试方法2: 通过获取最近一天的K线数据来验证股票是否存在
-        try:
-            from datetime import datetime, timedelta
-            today = datetime.now()
-            start = (today - timedelta(days=30)).strftime('%Y-%m-%d')
-            end = today.strftime('%Y-%m-%d')
-            
-            rs = bs.query_history_k_data_plus(
-                normalized_code,
-                "date,code",
-                start_date=start,
-                end_date=end,
-                frequency="d"
-            )
-            
-            if rs.error_code == '0':
-                data_list = []
-                while rs.next():
-                    data_list.append(rs.get_row_data())
+        # 方法2: 尝试 query_stock_basic
+        if not stock_name:
+            try:
+                rs = bs.query_stock_basic(code=normalized_code)
+                if rs.error_code == '0':
+                    data_list = []
+                    while rs.next():
+                        data_list.append(rs.get_row_data())
+                    
+                    if data_list:
+                        fields = rs.fields
+                        row = data_list[0]
+                        info = dict(zip(fields, row))
+                        stock_name = info.get('code_name', '')
+                        if stock_name:
+                            print(f"[股票信息] query_stock_basic找到: {stock_name}")
+            except Exception as e:
+                print(f"[股票信息] 方法2(query_stock_basic)失败: {e}")
+        
+        # 方法3: 验证股票是否存在（通过K线数据）
+        if not stock_name:
+            try:
+                from datetime import datetime, timedelta
+                today = datetime.now()
+                start = (today - timedelta(days=10)).strftime('%Y-%m-%d')
+                end = today.strftime('%Y-%m-%d')
                 
-                if data_list:
-                    # 股票存在，返回基本信息（名称待定）
-                    return {
-                        'code': normalized_code,
-                        'name': normalized_code.replace('.', ''),  # 暂用代码作为名称
-                        'market': market,
-                        'industry': '',
-                        'ipoDate': ''
-                    }
-        except Exception as e:
-            print(f"[股票信息] 方法2失败: {e}")
+                rs = bs.query_history_k_data_plus(
+                    normalized_code,
+                    "date,code",
+                    start_date=start,
+                    end_date=end,
+                    frequency="d"
+                )
+                
+                if rs.error_code == '0':
+                    has_data = False
+                    while rs.next():
+                        has_data = True
+                        break
+                    
+                    if has_data:
+                        # 股票存在但无法获取名称，使用代码
+                        code_only = normalized_code.split('.')[-1]
+                        stock_name = code_only
+                        print(f"[股票信息] K线数据存在，使用代码作为名称: {stock_name}")
+            except Exception as e:
+                print(f"[股票信息] 方法3(K线验证)失败: {e}")
         
-        # 都失败了，但仍然返回基本信息让用户尝试
-        print(f"[股票信息] 无法验证股票 {normalized_code}，将尝试继续")
+        # 如果还是没有名称，使用输入的代码
+        if not stock_name:
+            stock_name = code
+            print(f"[股票信息] 使用原始输入作为名称: {stock_name}")
+        
         return {
             'code': normalized_code,
-            'name': code,  # 使用原始输入作为名称
+            'name': stock_name,
             'market': market,
             'industry': '',
             'ipoDate': ''

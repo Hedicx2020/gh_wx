@@ -596,39 +596,54 @@ def stock_review():
         if searcher is None:
             init_searcher()
         
-        if searcher is not None and stock_name:
-            try:
-                # 搜索包含股票名称的聊天记录
-                results = searcher.search(
-                    start_date=start_date,
-                    end_date=end_date,
-                    keyword=stock_name,
-                    message_type=1  # 只搜索文本消息
-                )
-                
-                # 转换为列表格式并去重
-                seen = set()
-                for idx, row in results.iterrows():
-                    time_str = row['时间'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(row['时间']) else ''
-                    date_only = time_str.split(' ')[0]
-                    chat_name = str(row['聊天对象'])
-                    sender = str(row['发言人'])
-                    content = str(row['内容'])
+        if searcher is not None:
+            # 构建搜索关键词列表（名称和代码都搜索）
+            search_keywords = []
+            if stock_name and stock_name != code:
+                search_keywords.append(stock_name)
+            # 也搜索纯数字代码
+            code_only = stock_code.split('.')[-1] if '.' in stock_code else code
+            if code_only and code_only.isdigit():
+                search_keywords.append(code_only)
+            
+            print(f"[复盘] 搜索关键词: {search_keywords}")
+            
+            seen = set()
+            for keyword in search_keywords:
+                if not keyword:
+                    continue
+                try:
+                    # 搜索包含关键词的聊天记录
+                    results = searcher.search(
+                        start_date=start_date,
+                        end_date=end_date,
+                        keyword=keyword,
+                        message_type=1  # 只搜索文本消息
+                    )
                     
-                    # 去重: 同一日+聊天对象+发送者+内容
-                    dedup_key = f"{date_only}|{chat_name}|{sender}|{content}"
-                    if dedup_key in seen:
-                        continue
-                    seen.add(dedup_key)
-                    
-                    messages.append({
-                        'time': time_str,
-                        'chat_name': chat_name,
-                        'sender': sender,
-                        'content': content
-                    })
-            except Exception as e:
-                print(f"[复盘] 搜索聊天记录失败: {e}")
+                    # 转换为列表格式并去重
+                    for idx, row in results.iterrows():
+                        time_str = row['时间'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(row['时间']) else ''
+                        date_only = time_str.split(' ')[0]
+                        chat_name = str(row['聊天对象'])
+                        sender = str(row['发言人'])
+                        content = str(row['内容'])
+                        
+                        # 去重: 同一日+聊天对象+发送者+内容
+                        dedup_key = f"{date_only}|{chat_name}|{sender}|{content}"
+                        if dedup_key in seen:
+                            continue
+                        seen.add(dedup_key)
+                        
+                        messages.append({
+                            'time': time_str,
+                            'chat_name': chat_name,
+                            'sender': sender,
+                            'content': content
+                        })
+                    print(f"[复盘] 关键词'{keyword}'找到 {len(results)} 条记录")
+                except Exception as e:
+                    print(f"[复盘] 搜索关键词'{keyword}'失败: {e}")
         
         # 生成K线图
         try:
