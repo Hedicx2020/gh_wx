@@ -688,7 +688,7 @@
                 <div id="kline-chart-container" style="display: none;">
                     <div class="section-divider"></div>
                     <div class="card-title">K线图 <span id="kline-stock-info" style="font-weight: normal; font-size: 12px;"></span></div>
-                    <div id="kline-chart" style="width: 100%; min-height: 550px; border: var(--border-width) solid #ccc; background: #fff;"></div>
+                    <iframe id="kline-chart-iframe" style="width: 100%; height: 550px; border: var(--border-width) solid #ccc; background: #fff;" frameborder="0"></iframe>
                 </div>
                 
                 <!-- 相关聊天记录 -->
@@ -1797,7 +1797,6 @@
         // 显示K线复盘结果
         function displayKlineReview(data) {
             const chartContainer = document.getElementById('kline-chart-container');
-            const chartDiv = document.getElementById('kline-chart');
             const stockInfo = document.getElementById('kline-stock-info');
             const messagesContainer = document.getElementById('review-messages-container');
             const messagesList = document.getElementById('review-messages-list');
@@ -1811,46 +1810,41 @@
             chartContainer.style.display = 'block';
             stockInfo.textContent = `// ${data.stock_name} (${data.stock_code})`;
             
-            // 嵌入K线图HTML
-            chartDiv.innerHTML = data.chart_html;
+            // 使用 iframe 渲染K线图（避免脚本执行问题）
+            const iframe = document.getElementById('kline-chart-iframe');
             
-            // 执行K线图中的脚本 - 使用 Function 构造器确保正确执行
-            const scripts = chartDiv.querySelectorAll('script');
-            scripts.forEach((script, index) => {
-                if (script.src) {
-                    // 外部脚本 - 动态加载
-                    const newScript = document.createElement('script');
-                    newScript.src = script.src;
-                    document.body.appendChild(newScript);
-                } else {
-                    // 内联脚本 - 创建新的 script 元素并添加到 DOM
-                    const newScript = document.createElement('script');
-                    newScript.type = 'text/javascript';
-                    newScript.text = script.textContent;
-                    // 移除旧脚本，添加新脚本
-                    script.parentNode.removeChild(script);
-                    document.body.appendChild(newScript);
-                }
-            });
+            // 构建完整的 HTML 文档
+            const fullHtml = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"><\/script>
+                    <style>
+                        body { margin: 0; padding: 0; background: #fff; }
+                    </style>
+                </head>
+                <body>
+                    ${data.chart_html}
+                </body>
+                </html>
+            `;
             
-            // 延迟检查图表是否正确渲染
-            setTimeout(() => {
-                // 查找图表容器并调整大小
-                const containers = chartDiv.querySelectorAll('div[id]');
-                containers.forEach(container => {
-                    if (container.id) {
-                        try {
-                            const chart = echarts.getInstanceByDom(container);
-                            if (chart) {
-                                chart.resize();
-                                console.log('K线图渲染成功:', container.id);
-                            }
-                        } catch (e) {
-                            // 忽略非图表容器
-                        }
+            // 使用 srcdoc 设置 iframe 内容
+            iframe.srcdoc = fullHtml;
+            
+            // 调整 iframe 高度
+            iframe.onload = function() {
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    const chartDiv = iframeDoc.querySelector('div[id]');
+                    if (chartDiv) {
+                        console.log('K线图渲染成功');
                     }
-                });
-            }, 200);
+                } catch (e) {
+                    console.log('K线图加载完成');
+                }
+            };
             
             // 显示相关聊天记录
             if (data.messages && data.messages.length > 0) {
@@ -1899,7 +1893,7 @@
             document.getElementById('review-message').innerHTML = '';
             document.getElementById('kline-chart-container').style.display = 'none';
             document.getElementById('review-messages-container').style.display = 'none';
-            document.getElementById('kline-chart').innerHTML = '';
+            document.getElementById('kline-chart-iframe').srcdoc = '';
             document.getElementById('review-messages-list').innerHTML = '';
             
             // 重置日期为最近30天
