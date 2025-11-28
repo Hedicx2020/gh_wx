@@ -17,21 +17,22 @@ if os.path.exists(font_path):
 
 # Text content using Unicode escapes
 T = {
-    'title': '\u56fd\u6d77\u91d1\u5de5\u5fae\u4fe1\u6570\u636e\u7b5b\u9009\u5de5\u5177 v1.2',
+    'title': '\u56fd\u6d77\u91d1\u5de5\u5fae\u4fe1\u6570\u636e\u7b5b\u9009\u5de5\u5177 v2.0',
     'guide': '\u7528\u6237\u4f7f\u7528\u6307\u5357',
     'intro': '\u672c\u6307\u5357\u5c06\u6307\u5bfc\u60a8\u5b8c\u6210\u4ee5\u4e0b\u64cd\u4f5c\uff1a',
     'step1': '\u2022 \u4f7f\u7528 DbkeyHookUI.exe \u83b7\u53d6\u5fae\u4fe1\u6570\u636e\u5e93\u5bc6\u94a5',
     'step2': '\u2022 \u914d\u7f6e config.xlsx \u6587\u4ef6',
     'step3': '\u2022 \u4f7f\u7528\u6570\u636e\u7b5b\u9009\u5de5\u5177\u8fdb\u884c\u6570\u636e\u89e3\u5bc6\u548c\u641c\u7d22',
-    'version': '\u7248\u672c\uff1av1.2 | \u66f4\u65b0\u65e5\u671f\uff1a2025\u5e7411\u6708',
+    'step4': '\u2022 \u4f7f\u7528\u4e2a\u80a1K\u7ebf\u590d\u76d8\u529f\u80fd\u5206\u6790\u80a1\u7968\u4e0e\u804a\u5929\u8bb0\u5f55',
+    'version': '\u7248\u672c\uff1av2.0 | \u66f4\u65b0\u65e5\u671f\uff1a2025\u5e7411\u6708',
     'ch1': '\u4e00\u3001\u5de5\u5177\u5305\u6587\u4ef6\u8bf4\u660e',
     'ch1_intro': '\u5de5\u5177\u5305\u5305\u542b\u4ee5\u4e0b\u6587\u4ef6\uff1a',
     'file_name': '\u6587\u4ef6\u540d',
     'file_desc': '\u8bf4\u660e',
     'file1_desc': '\u5fae\u4fe1\u6570\u636e\u5e93\u5bc6\u94a5\u83b7\u53d6\u5de5\u5177',
     'file2_desc': '\u914d\u7f6e\u6587\u4ef6\uff08\u5bc6\u94a5\u3001\u8def\u5f84\u3001\u641c\u7d22\u53c2\u6570\u7b49\uff09',
-    'file3_name': '\u56fd\u6d77\u91d1\u5de5\u5fae\u4fe1\u6570\u636e\u7b5b\u9009\u5de5\u5177v1.2.exe',
-    'file3_desc': '\u4e3b\u7a0b\u5e8f\uff08\u6570\u636e\u89e3\u5bc6\u3001\u641c\u7d22\u3001AI\u5206\u6790\uff09',
+    'file3_name': '\u56fd\u6d77\u91d1\u5de5\u5fae\u4fe1\u6570\u636e\u7b5b\u9009\u5de5\u5177v2.0.exe',
+    'file3_desc': '\u4e3b\u7a0b\u5e8f\uff08\u6570\u636e\u89e3\u5bc6\u3001\u641c\u7d22\u3001AI\u5206\u6790\u3001K\u7ebf\u590d\u76d8\uff09',
     'tip_same_dir': '\u3010\u63d0\u793a\u3011\u8bf7\u5c06\u6240\u6709\u6587\u4ef6\u653e\u7f6e\u5728\u540c\u4e00\u76ee\u5f55\u4e0b\u8fd0\u884c\u3002',
     'ch2': '\u4e8c\u3001\u83b7\u53d6\u5fae\u4fe1\u6570\u636e\u5e93\u5bc6\u94a5',
     'ch2_1': '2.1 \u524d\u63d0\u6761\u4ef6',
@@ -123,6 +124,8 @@ T = {
     'mod2_desc': '\u914d\u7f6eAI\u6a21\u578b\uff0c\u5bf9\u641c\u7d22\u7ed3\u679c\u8fdb\u884c\u667a\u80fd\u5206\u6790',
     'mod3': '\u6a21\u5757 C: \u641c\u7d22\u804a\u5929',
     'mod3_desc': '\u6309\u6761\u4ef6\u641c\u7d22\u804a\u5929\u8bb0\u5f55\uff0c\u652f\u6301\u80a1\u7968\u7b5b\u9009',
+    'mod4': '\u6a21\u5757 D: K\u7ebf\u590d\u76d8',
+    'mod4_desc': '\u4e2a\u80a1K\u7ebf\u56fe\u4e0e\u804a\u5929\u8bb0\u5f55\u5173\u8054\u5206\u6790\uff08\u65b0\u529f\u80fd\uff09',
     'ch4_3': '4.3 \u64cd\u4f5c\u6d41\u7a0b',
     'op1_title': '<b>\u7b2c\u4e00\u6b65\uff1a\u52a0\u8f7d\u914d\u7f6e</b>',
     'op1_desc': '\u70b9\u51fb\u3010\u52a0\u8f7d\u914d\u7f6e\u3011\u6309\u94ae\uff0c\u7cfb\u7edf\u4f1a\u81ea\u52a8\u8bfb\u53d6 config.xlsx \u4e2d\u7684\u914d\u7f6e\u4fe1\u606f\u3002',
@@ -153,6 +156,17 @@ T = {
     'ch4_6': '4.6 \u5bfc\u51fa\u6570\u636e',
     'ch4_6_desc': '\u641c\u7d22\u7ed3\u679c\u53ef\u4ee5\u5bfc\u51fa\u4e3aExcel\u6587\u4ef6\uff1a',
     'ch4_6_btn': '\u70b9\u51fb\u3010\u5bfc\u51faExcel\u3011\u6309\u94ae\uff0c\u6587\u4ef6\u5c06\u4fdd\u5b58\u5230 output/ \u76ee\u5f55\u4e0b\u3002',
+    'ch4_7': '4.7 \u4e2a\u80a1K\u7ebf\u590d\u76d8\uff08\u65b0\u529f\u80fd\uff09',
+    'ch4_7_desc': 'K\u7ebf\u590d\u76d8\u529f\u80fd\u53ef\u4ee5\u5c06\u80a1\u7968\u8d70\u52bf\u4e0e\u804a\u5929\u8bb0\u5f55\u5173\u8054\u5206\u6790\uff1a',
+    'kline1': '\u2022 \u8f93\u5165\u80a1\u7968\u4ee3\u7801\uff08\u5982 600519\u3001000001\uff09',
+    'kline2': '\u2022 \u9009\u62e9\u65e5\u671f\u8303\u56f4',
+    'kline3': '\u2022 \u70b9\u51fb\u3010\u751f\u6210K\u7ebf\u590d\u76d8\u3011\u6309\u94ae',
+    'kline4': '\u2022 \u67e5\u770bK\u7ebf\u56fe\uff0c\u9f20\u6807\u60ac\u505c\u53ef\u89c1\u5f53\u5929\u804a\u5929\u8bb0\u5f55',
+    'kline5': '\u2022 \u4e0b\u65b9\u663e\u793a\u76f8\u5173\u804a\u5929\u8bb0\u5f55\u5217\u8868',
+    'kline_tip': '\u3010\u63d0\u793a\u3011K\u7ebf\u6570\u636e\u6765\u81eabaostock\u514d\u8d39\u63a5\u53e3\uff0c\u90e8\u5206\u65b0\u80a1\u6216ETF\u53ef\u80fd\u65e0\u6570\u636e\u3002',
+    'kline_code': '\u652f\u6301\u7684\u80a1\u7968\u4ee3\u7801\u683c\u5f0f\uff1a',
+    'kline_code1': '\u2022 \u4e0a\u6d77\uff1a600xxx\u3001601xxx\u3001603xxx',
+    'kline_code2': '\u2022 \u6df1\u5733\uff1a000xxx\u3001002xxx\u3001300xxx',
     'ch5': '\u4e94\u3001\u5e38\u89c1\u95ee\u9898\u89e3\u7b54',
     'q1': 'Q1\uff1a\u7a0b\u5e8f\u542f\u52a8\u540e\u6d4f\u89c8\u5668\u6ca1\u6709\u81ea\u52a8\u6253\u5f00\uff1f',
     'a1': 'A\uff1a\u8bf7\u624b\u52a8\u6253\u5f00\u6d4f\u89c8\u5668\uff0c\u8bbf\u95ee http://127.0.0.1:5000',
@@ -182,7 +196,7 @@ T = {
     'support_desc': '\u5982\u6709\u5176\u4ed6\u95ee\u9898\uff0c\u8bf7\u8054\u7cfb\u56fd\u6d77\u8bc1\u5238\u91d1\u878d\u5de5\u7a0b\u56e2\u961f\u3002',
 }
 
-pdf_path = 'D:/gh_wx/dist/user_guide_v1.2.pdf'
+pdf_path = 'D:/gh_wx/dist/用户手册.pdf'
 doc = SimpleDocTemplate(pdf_path, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
 
 styles = getSampleStyleSheet()
@@ -207,6 +221,7 @@ story.append(Paragraph(T['intro'], body_style))
 story.append(Paragraph(T['step1'], list_style))
 story.append(Paragraph(T['step2'], list_style))
 story.append(Paragraph(T['step3'], list_style))
+story.append(Paragraph(T['step4'], list_style))
 story.append(Spacer(1, 3*cm))
 story.append(Paragraph(T['version'], body_style))
 story.append(PageBreak())
@@ -295,7 +310,7 @@ story.append(Paragraph(T['ch4_1_desc2'], body_style))
 story.append(Paragraph(T['ch4_1_url'], code_style))
 story.append(Paragraph(T['ch4_2'], h2_style))
 story.append(Paragraph(T['ch4_2_desc'], body_style))
-module_data = [[T['module'], T['module_desc']], [T['mod1'], T['mod1_desc']], [T['mod2'], T['mod2_desc']], [T['mod3'], T['mod3_desc']]]
+module_data = [[T['module'], T['module_desc']], [T['mod1'], T['mod1_desc']], [T['mod2'], T['mod2_desc']], [T['mod3'], T['mod3_desc']], [T['mod4'], T['mod4_desc']]]
 module_table = Table(module_data, colWidths=[4*cm, 11*cm])
 module_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4a9fd8')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white), ('FONTNAME', (0, 0), (-1, -1), 'ChineseFont'), ('FONTSIZE', (0, 0), (-1, -1), 10), ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cccccc')), ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8)]))
 story.append(Spacer(1, 0.3*cm))
@@ -330,6 +345,17 @@ story.append(Paragraph(T['ai3'], list_style))
 story.append(Paragraph(T['ch4_6'], h2_style))
 story.append(Paragraph(T['ch4_6_desc'], body_style))
 story.append(Paragraph(T['ch4_6_btn'], body_style))
+story.append(Paragraph(T['ch4_7'], h2_style))
+story.append(Paragraph(T['ch4_7_desc'], body_style))
+story.append(Paragraph(T['kline1'], list_style))
+story.append(Paragraph(T['kline2'], list_style))
+story.append(Paragraph(T['kline3'], list_style))
+story.append(Paragraph(T['kline4'], list_style))
+story.append(Paragraph(T['kline5'], list_style))
+story.append(Paragraph(T['kline_tip'], tip_style))
+story.append(Paragraph(T['kline_code'], body_style))
+story.append(Paragraph(T['kline_code1'], list_style))
+story.append(Paragraph(T['kline_code2'], list_style))
 story.append(PageBreak())
 
 # Chapter 5
