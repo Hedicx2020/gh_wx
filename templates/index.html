@@ -480,7 +480,7 @@
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                        <button class="btn" onclick="loadConfig()" style="flex: 1;">[加载]</button>
+                        <button class="btn" onclick="saveLLMConfig()" style="flex: 1;">[保存AI配置]</button>
                         <button class="btn" onclick="testLLMConnection()" style="flex: 1;">[测试连接]</button>
                         <button class="btn" onclick="toggleConfigArea()" style="flex: 0.5;">[隐藏]</button>
                     </div>
@@ -795,7 +795,9 @@
         // 加载配置
         function loadConfig() {
             const msgDiv = document.getElementById('config-message');
-            msgDiv.innerHTML = '<div class="alert alert-info">加载配置中...</div>';
+            if (msgDiv) {
+                msgDiv.innerHTML = '<div class="alert alert-info">加载配置中...</div>';
+            }
 
             fetch('/api/config', {
                 method: 'GET',
@@ -806,39 +808,63 @@
             })
                 .then(res => res.json())
                 .then(data => {
+                    console.log('配置数据:', data);
                     if (data.success) {
                         const config = data.config;
 
                         // 加载数据库配置
-                        document.getElementById('decrypt_key').value = config.database_password || '';
-                        document.getElementById('db_path').value = config.wechat_files_path || '';
+                        const decryptKey = document.getElementById('decrypt_key');
+                        const dbPath = document.getElementById('db_path');
+                        if (decryptKey) decryptKey.value = config.database_password || '';
+                        if (dbPath) dbPath.value = config.wechat_files_path || '';
 
                         // 加载搜索配置到搜索框
                         const startDate = config.default_start_date || '';
                         const endDate = config.default_end_date || '';
-                        document.getElementById('start_date').value = startDate.split(' ')[0]; 
-                        document.getElementById('end_date').value = endDate.split(' ')[0];
-                        document.getElementById('chat_name').value = config.default_chat_name || '';
-                        document.getElementById('keyword').value = config.default_keyword || '';
-                        document.getElementById('delete_keywords').value = config.delete_keywords || '';
+                        const startDateEl = document.getElementById('start_date');
+                        const endDateEl = document.getElementById('end_date');
+                        const chatNameEl = document.getElementById('chat_name');
+                        const keywordEl = document.getElementById('keyword');
+                        const deleteKeywordsEl = document.getElementById('delete_keywords');
+                        
+                        if (startDateEl) startDateEl.value = startDate.split(' ')[0]; 
+                        if (endDateEl) endDateEl.value = endDate.split(' ')[0];
+                        if (chatNameEl) chatNameEl.value = config.default_chat_name || '';
+                        if (keywordEl) keywordEl.value = config.default_keyword || '';
+                        if (deleteKeywordsEl) deleteKeywordsEl.value = config.delete_keywords || '';
 
                         // 加载LLM配置
-                        document.getElementById('llm_api_base').value = config.llm_api_base || '';
-                        document.getElementById('llm_model').value = config.llm_model || '';
-                        document.getElementById('llm_api_key').value = config.llm_api_key || '';
-                        document.getElementById('llm_temperature').value = config.llm_temperature || 0.7;
-                        document.getElementById('llm_max_tokens').value = config.llm_max_tokens || 2000;
+                        const llmApiBase = document.getElementById('llm_api_base');
+                        const llmModel = document.getElementById('llm_model');
+                        const llmApiKey = document.getElementById('llm_api_key');
+                        const llmTemp = document.getElementById('llm_temperature');
+                        const llmMaxTokens = document.getElementById('llm_max_tokens');
+                        
+                        if (llmApiBase) llmApiBase.value = config.llm_api_base || '';
+                        if (llmModel) llmModel.value = config.llm_model || '';
+                        if (llmApiKey) llmApiKey.value = config.llm_api_key || '';
+                        if (llmTemp) llmTemp.value = config.llm_temperature || 0.7;
+                        if (llmMaxTokens) llmMaxTokens.value = config.llm_max_tokens || 2000;
 
-                        msgDiv.innerHTML = '<div class="alert alert-success">[OK] 配置已加载</div>';
-                        setTimeout(() => msgDiv.innerHTML = '', 2000);
+                        console.log('LLM配置已加载:', config.llm_api_base, config.llm_model);
+
+                        if (msgDiv) {
+                            msgDiv.innerHTML = '<div class="alert alert-success">[OK] 配置已加载</div>';
+                            setTimeout(() => msgDiv.innerHTML = '', 2000);
+                        }
                     } else {
-                        msgDiv.innerHTML = '<div class="alert alert-info">[i] 未找到配置</div>';
-                        setTimeout(() => msgDiv.innerHTML = '', 2000);
+                        if (msgDiv) {
+                            msgDiv.innerHTML = '<div class="alert alert-info">[i] 未找到配置</div>';
+                            setTimeout(() => msgDiv.innerHTML = '', 2000);
+                        }
                     }
                 })
                 .catch(err => {
-                    msgDiv.innerHTML = '<div class="alert alert-error">[X] 加载失败</div>';
-                    setTimeout(() => msgDiv.innerHTML = '', 3000);
+                    console.error('加载配置失败:', err);
+                    if (msgDiv) {
+                        msgDiv.innerHTML = '<div class="alert alert-error">[X] 加载失败</div>';
+                        setTimeout(() => msgDiv.innerHTML = '', 3000);
+                    }
                 });
         }
 
@@ -867,6 +893,39 @@
                 } else {
                     msgDiv.innerHTML = '<div class="alert alert-error">[X] ' + data.message + '</div>';
                 }
+                setTimeout(() => msgDiv.innerHTML = '', 3000);
+            });
+        }
+
+        // 保存LLM配置
+        function saveLLMConfig() {
+            const config = {
+                llm_api_base: document.getElementById('llm_api_base').value,
+                llm_model: document.getElementById('llm_model').value,
+                llm_api_key: document.getElementById('llm_api_key').value,
+                llm_temperature: parseFloat(document.getElementById('llm_temperature').value) || 0.7,
+                llm_max_tokens: parseInt(document.getElementById('llm_max_tokens').value) || 2000
+            };
+
+            const msgDiv = document.getElementById('llm-config-message');
+            msgDiv.innerHTML = '<div class="alert alert-info">保存中...</div>';
+
+            fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(config)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    msgDiv.innerHTML = '<div class="alert alert-success">[OK] AI配置已保存</div>';
+                } else {
+                    msgDiv.innerHTML = '<div class="alert alert-error">[X] ' + data.message + '</div>';
+                }
+                setTimeout(() => msgDiv.innerHTML = '', 3000);
+            })
+            .catch(err => {
+                msgDiv.innerHTML = '<div class="alert alert-error">[X] 保存失败</div>';
                 setTimeout(() => msgDiv.innerHTML = '', 3000);
             });
         }

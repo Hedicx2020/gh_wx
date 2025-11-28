@@ -195,13 +195,41 @@ def get_config():
 
     response = jsonify({
         'success': True,
-        'config': config
+        'config': config,
+        'debug': {
+            'config_file': str(fresh_config_manager.config_file),
+            'file_exists': fresh_config_manager.config_file.exists()
+        }
     })
     # 禁用浏览器/代理缓存，避免返回旧配置
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
+
+
+@app.route('/api/config/debug', methods=['GET'])
+def debug_config():
+    """调试配置文件读取"""
+    import pandas as pd
+    from pathlib import Path
+    
+    result = {
+        'cwd': str(Path.cwd()),
+        'config_file': str(Path.cwd() / 'config.xlsx'),
+        'file_exists': (Path.cwd() / 'config.xlsx').exists(),
+    }
+    
+    try:
+        df = pd.read_excel(Path.cwd() / 'config.xlsx', engine='openpyxl')
+        result['columns'] = df.columns.tolist()
+        result['rows'] = []
+        for idx, row in df.iterrows():
+            result['rows'].append(dict(row))
+    except Exception as e:
+        result['error'] = str(e)
+    
+    return jsonify(result)
 
 
 @app.route('/api/config', methods=['POST'])
