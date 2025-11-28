@@ -33,4 +33,3 @@ if os.path.exists(dist_config):
         if key in ['database_password', 'wechat_files_path']:
             print(f"  {key} = '{value}'")
 
-
