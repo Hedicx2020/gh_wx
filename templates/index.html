@@ -1814,44 +1814,43 @@
             // 嵌入K线图HTML
             chartDiv.innerHTML = data.chart_html;
             
-            // 执行K线图中的脚本 - 使用 eval 确保脚本正确执行
+            // 执行K线图中的脚本 - 使用 Function 构造器确保正确执行
             const scripts = chartDiv.querySelectorAll('script');
-            scripts.forEach(script => {
+            scripts.forEach((script, index) => {
                 if (script.src) {
                     // 外部脚本 - 动态加载
                     const newScript = document.createElement('script');
                     newScript.src = script.src;
                     document.body.appendChild(newScript);
                 } else {
-                    // 内联脚本 - 使用 eval 执行
-                    try {
-                        eval(script.textContent);
-                    } catch (e) {
-                        console.error('K线图脚本执行错误:', e);
-                    }
+                    // 内联脚本 - 创建新的 script 元素并添加到 DOM
+                    const newScript = document.createElement('script');
+                    newScript.type = 'text/javascript';
+                    newScript.text = script.textContent;
+                    // 移除旧脚本，添加新脚本
+                    script.parentNode.removeChild(script);
+                    document.body.appendChild(newScript);
                 }
             });
             
-            // 如果图表没有渲染，尝试手动初始化
+            // 延迟检查图表是否正确渲染
             setTimeout(() => {
-                const chartElement = chartDiv.querySelector('div[_echarts_instance_]');
-                if (!chartElement) {
-                    // 查找图表容器并重新初始化
-                    const containers = chartDiv.querySelectorAll('div[id]');
-                    containers.forEach(container => {
-                        if (container.id && container.style.width && container.style.height) {
-                            try {
-                                const existingChart = echarts.getInstanceByDom(container);
-                                if (existingChart) {
-                                    existingChart.resize();
-                                }
-                            } catch (e) {
-                                console.log('图表检查:', e);
+                // 查找图表容器并调整大小
+                const containers = chartDiv.querySelectorAll('div[id]');
+                containers.forEach(container => {
+                    if (container.id) {
+                        try {
+                            const chart = echarts.getInstanceByDom(container);
+                            if (chart) {
+                                chart.resize();
+                                console.log('K线图渲染成功:', container.id);
                             }
+                        } catch (e) {
+                            // 忽略非图表容器
                         }
-                    });
-                }
-            }, 100);
+                    }
+                });
+            }, 200);
             
             // 显示相关聊天记录
             if (data.messages && data.messages.length > 0) {
