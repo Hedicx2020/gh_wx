@@ -250,8 +250,14 @@ def decrypt_wechat_databases(db_storage_path: str = None, key: str = None) -> di
     logger.info("=" * 60)
 
     # 创建基础输出目录
-    # 使用绝对路径：从当前文件向上2层到项目根目录，再进入output/databases
-    project_root = Path(__file__).resolve().parents[2]
+    # 判断是否是打包后的exe运行
+    import sys
+    if getattr(sys, 'frozen', False):
+        # PyInstaller打包后的exe，使用exe所在目录
+        project_root = Path(sys.executable).parent
+    else:
+        # 普通Python脚本运行，使用从当前文件向上2层到项目根目录
+        project_root = Path(__file__).resolve().parents[2]
     base_output_dir = project_root / "output" / "databases"
     base_output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"基础输出目录: {base_output_dir.absolute()}")

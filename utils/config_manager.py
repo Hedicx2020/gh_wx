@@ -17,13 +17,9 @@ class ConfigManager:
 
     def load_config(self):
         """从Excel加载配置文件"""
-        print(f"[配置管理] 当前工作目录: {Path.cwd()}")
-        print(f"[配置管理] 配置文件路径: {self.config_file}")
-
         if self.config_file.exists():
             try:
                 df = pd.read_excel(self.config_file, engine='openpyxl')
-                print(f"[配置管理] Excel列: {df.columns.tolist()}")
 
                 config = {}
                 
@@ -31,13 +27,11 @@ class ConfigManager:
                 if '配置项' in df.columns and '值' in df.columns:
                     # 纵向格式：第一列是配置项名称，第二列是值
                     for _, row in df.iterrows():
-                        print(f"[配置管理] 行: {row.to_dict()}")
                         key = row['配置项']
                         value = row['值']
                         config[key] = self._process_value(value)
                 else:
                     # 横向格式：每列名就是配置项，第一行是值
-                    print("[配置管理] 检测到横向格式")
                     for col in df.columns:
                         if not col.startswith('Unnamed'):
                             value = df[col].iloc[0] if len(df) > 0 else ""
@@ -45,7 +39,7 @@ class ConfigManager:
                 
                 return config
             except Exception as e:
-                print(f"加载配置失败: {e}")
+                print(f"[配置管理] 加载配置失败: {e}")
                 return self.get_default_config()
         else:
             return self.get_default_config()

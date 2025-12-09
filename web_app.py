@@ -17,8 +17,21 @@ from flask_cors import CORS
 import pandas as pd
 import json as json_module
 
-# 添加路径
-root_path = Path(__file__).parent
+# 判断是否是打包后的exe运行
+def get_app_path():
+    """获取应用程序所在目录（兼容exe和脚本运行）"""
+    if getattr(sys, 'frozen', False):
+        # PyInstaller打包后的exe
+        return Path(sys.executable).parent
+    else:
+        # 普通Python脚本运行
+        return Path(__file__).parent
+
+# 应用根目录（exe所在目录或脚本所在目录）
+APP_ROOT = get_app_path()
+
+# 添加路径（用于脚本运行时）
+root_path = Path(__file__).parent if not getattr(sys, 'frozen', False) else APP_ROOT
 src_path = root_path / "src"
 utils_path = root_path / "utils"
 scripts_path = root_path / "scripts"
@@ -45,8 +58,8 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用静态文件缓存
 app.jinja_env.auto_reload = True
 app.jinja_env.cache = {}  # 清除Jinja模板缓存
 
-# 全局配置
-OUTPUT_BASE_DIR = Path(__file__).parent / "output" / "databases"
+# 全局配置（使用APP_ROOT确保exe运行时路径正确）
+OUTPUT_BASE_DIR = APP_ROOT / "output" / "databases"
 
 # 初始化配置管理器
 config_manager = ConfigManager()
@@ -58,7 +71,7 @@ searcher = None
 def init_searcher():
     """初始化搜索器 - 从解密的数据库目录加载"""
     global searcher
-    base_dir = Path(__file__).parent
+    base_dir = APP_ROOT
     databases_dir = base_dir / 'output' / 'databases'
 
     # 查找解密后的数据库目录
@@ -415,7 +428,7 @@ def export():
         # 导出到临时文件
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'搜索结果_{timestamp}.xlsx'
-        output_path = Path(__file__).parent / 'output' / filename
+        output_path = APP_ROOT / 'output' / filename
 
         searcher.export_results(results, str(output_path))
 
@@ -435,7 +448,7 @@ def export():
 @app.route('/api/download/<filename>')
 def download(filename):
     """下载文件"""
-    file_path = Path(__file__).parent / 'output' / filename
+    file_path = APP_ROOT / 'output' / filename
     if file_path.exists():
         return send_file(str(file_path), as_attachment=True)
     else:
@@ -558,6 +571,10 @@ def stock_review():
         code = data.get('code', '').strip()
         start_date = data.get('start_date', '')
         end_date = data.get('end_date', '')
+        # 额外搜索关键词（逗号分隔）
+        extra_search_keywords = data.get('search_keywords', '').strip()
+        # 过滤关键词（排除含有这些词的消息）
+        delete_keywords = data.get('delete_keywords', '').strip()
         
         if not code:
             return jsonify({
@@ -606,7 +623,16 @@ def stock_review():
             if code_only and code_only.isdigit():
                 search_keywords.append(code_only)
             
+            # 添加用户指定的额外搜索关键词
+            if extra_search_keywords:
+                for kw in extra_search_keywords.split(','):
+                    kw = kw.strip()
+                    if kw and kw not in search_keywords:
+                        search_keywords.append(kw)
+            
             print(f"[复盘] 搜索关键词: {search_keywords}")
+            if delete_keywords:
+                print(f"[复盘] 过滤关键词: {delete_keywords}")
             
             seen = set()
             for keyword in search_keywords:
@@ -618,7 +644,8 @@ def stock_review():
                         start_date=start_date,
                         end_date=end_date,
                         keyword=keyword,
-                        message_type=1  # 只搜索文本消息
+                        message_type=1,  # 只搜索文本消息
+                        delete_keywords=delete_keywords  # 应用过滤关键词
                     )
                     
                     # 转换为列表格式并去重
@@ -629,8 +656,10 @@ def stock_review():
                         sender = str(row['发言人'])
                         content = str(row['内容'])
                         
-                        # 去重: 同一日+聊天对象+发送者+内容
-                        dedup_key = f"{date_only}|{chat_name}|{sender}|{content}"
+                        # 去重: 同一日+内容（不管谁发的，只要内容相同就去重）
+                        # 对内容进行标准化：去除首尾空白、统一换行符
+                        content_normalized = content.strip().replace('\r\n', '\n').replace('\r', '\n')
+                        dedup_key = f"{date_only}|{content_normalized}"
                         if dedup_key in seen:
                             continue
                         seen.add(dedup_key)
@@ -667,6 +696,9 @@ def stock_review():
                 messages_by_date[date] = []
             messages_by_date[date].append(msg)
         
+        # 将DataFrame转换为可序列化的列表
+        kline_list = kline_data.to_dict('records') if hasattr(kline_data, 'to_dict') else kline_data
+        
         return jsonify({
             'success': True,
             'stock_name': stock_name,
@@ -675,6 +707,7 @@ def stock_review():
             'messages': messages,
             'messages_by_date': messages_by_date,
             'message_count': len(messages),
+            'kline_data': kline_list,
             'kline_count': len(kline_data)
         })
         
@@ -788,7 +821,7 @@ def convert_dat_images():
             })
 
         # 输出目录：output/images
-        output_dir = Path(__file__).parent / 'output' / 'images'
+        output_dir = APP_ROOT / 'output' / 'images'
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # 创建解密器
@@ -1053,6 +1086,148 @@ def test_llm_connection():
         return jsonify({
             'success': False,
             'message': f'连接测试失败: {str(e)}'
+        })
+
+
+@app.route('/api/llm/export', methods=['POST'])
+def export_chat_history():
+    """导出AI对话历史到Excel"""
+    try:
+        data = request.json
+        history = data.get('history', [])
+        context = data.get('context', '')
+        
+        if not history:
+            return jsonify({
+                'success': False,
+                'message': '没有对话记录可导出'
+            })
+        
+        # 构建导出数据
+        export_data = []
+        for msg in history:
+            export_data.append({
+                '角色': '用户' if msg.get('role') == 'user' else 'AI助手',
+                '内容': msg.get('content', '')
+            })
+        
+        # 创建DataFrame
+        df = pd.DataFrame(export_data)
+        
+        # 生成文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'AI对话记录_{timestamp}.xlsx'
+        output_path = APP_ROOT / 'output' / filename
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # 导出到Excel
+        with pd.ExcelWriter(str(output_path), engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='对话记录', index=False)
+            
+            # 如果有上下文，也导出
+            if context:
+                context_df = pd.DataFrame([{'上下文内容': context}])
+                context_df.to_excel(writer, sheet_name='搜索上下文', index=False)
+        
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'count': len(history)
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'导出失败: {str(e)}'
+        })
+
+
+@app.route('/api/stock/review/export', methods=['POST'])
+def export_review_messages():
+    """导出复盘数据到Excel（包含K线数据和聊天记录）"""
+    try:
+        data = request.json
+        stock_name = data.get('stock_name', '')
+        stock_code = data.get('stock_code', '')
+        messages = data.get('messages', [])
+        kline_data = data.get('kline_data', [])
+        messages_by_date = data.get('messages_by_date', {})
+        
+        # 生成文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_name = stock_name.replace('/', '_').replace('\\', '_')[:20]
+        filename = f'复盘_{safe_name}_{stock_code}_{timestamp}.xlsx'
+        output_path = APP_ROOT / 'output' / filename
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with pd.ExcelWriter(str(output_path), engine='openpyxl') as writer:
+            # Sheet 1: K线数据 + 当日聊天记录摘要
+            if kline_data:
+                kline_export = []
+                for kline in kline_data:
+                    date = kline.get('date', '')
+                    # 获取当日的聊天记录
+                    day_messages = messages_by_date.get(date, [])
+                    # 合并当日消息为摘要
+                    msg_summary = '\n---\n'.join([
+                        f"[{m.get('time', '').split(' ')[-1] if ' ' in m.get('time', '') else ''}] {m.get('sender', '')}: {m.get('content', '')[:100]}..."
+                        if len(m.get('content', '')) > 100 else
+                        f"[{m.get('time', '').split(' ')[-1] if ' ' in m.get('time', '') else ''}] {m.get('sender', '')}: {m.get('content', '')}"
+                        for m in day_messages
+                    ]) if day_messages else ''
+                    
+                    kline_export.append({
+                        '日期': date,
+                        '开盘': kline.get('open', ''),
+                        '收盘': kline.get('close', ''),
+                        '最高': kline.get('high', ''),
+                        '最低': kline.get('low', ''),
+                        '成交量': kline.get('volume', ''),
+                        '涨跌幅': kline.get('pctChg', ''),
+                        '消息数': len(day_messages),
+                        '当日聊天摘要': msg_summary
+                    })
+                
+                kline_df = pd.DataFrame(kline_export)
+                kline_df.to_excel(writer, sheet_name='K线与消息', index=False)
+            
+            # Sheet 2: 完整聊天记录
+            if messages:
+                msg_export = []
+                for msg in messages:
+                    msg_export.append({
+                        '时间': msg.get('time', ''),
+                        '日期': msg.get('time', '').split(' ')[0] if ' ' in msg.get('time', '') else msg.get('time', ''),
+                        '聊天对象': msg.get('chat_name', ''),
+                        '发送者': msg.get('sender', ''),
+                        '内容': msg.get('content', '')
+                    })
+                msg_df = pd.DataFrame(msg_export)
+                msg_df.to_excel(writer, sheet_name='完整聊天记录', index=False)
+            
+            # Sheet 3: 股票基本信息
+            info_df = pd.DataFrame([{
+                '股票名称': stock_name,
+                '股票代码': stock_code,
+                'K线天数': len(kline_data),
+                '消息总数': len(messages),
+                '导出时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }])
+            info_df.to_excel(writer, sheet_name='基本信息', index=False)
+        
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'count': len(messages),
+            'kline_count': len(kline_data)
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'导出失败: {str(e)}'
         })
 
 

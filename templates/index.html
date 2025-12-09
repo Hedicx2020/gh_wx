@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>国海微信数据筛选工具 v1.2 - TERMINAL</title>
+    <title>国海微信数据筛选工具 v2.0 - TERMINAL</title>
     <!-- ECharts CDN for K-line chart -->
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
@@ -379,7 +379,7 @@
         <div class="header">
             <div>
                 <h1>国海微信数据筛选工具</h1>
-                <div style="font-size: 10px; letter-spacing: 2px; margin-top: 5px;">国海微信数据工具 v1.2</div>
+                <div style="font-size: 10px; letter-spacing: 2px; margin-top: 5px;">国海微信数据工具 v2.2</div>
             </div>
             <div class="header-info">
                 <p>联系人: 林宸星 (18939965999)</p>
@@ -450,9 +450,136 @@
                 <div id="image-message"></div>
             </div>
 
-            <!-- SECTION 2: AI INTELLIGENCE -->
+            <!-- SECTION 2: SEARCH CHAT -->
+            <div class="card">
+                <div class="module-label">模块 B: 搜索</div>
+                <div class="card-title">搜索聊天记录</div>
+                
+                <form id="search-form">
+                    <div class="search-grid">
+                        <div class="form-group">
+                            <label>开始日期</label>
+                            <input type="date" id="start_date" name="start_date" onchange="autoSaveSearchConfig()">
+                        </div>
+                        <div class="form-group">
+                            <label>结束日期</label>
+                            <input type="date" id="end_date" name="end_date" onchange="autoSaveSearchConfig()">
+                        </div>
+                        <div class="form-group">
+                            <label>聊天对象</label>
+                            <input type="text" id="chat_name" name="chat_name" placeholder="姓名1,姓名2..." onblur="autoSaveSearchConfig()">
+                        </div>
+                        <div class="form-group">
+                            <label>发送者</label>
+                            <input type="text" id="sender_name" name="sender_name" placeholder="发送者1,发送者2...">
+                        </div>
+                        <div class="form-group">
+                            <label>关键词</label>
+                            <input type="text" id="keyword" name="keyword" placeholder="文本内容..." onblur="autoSaveSearchConfig()">
+                        </div>
+                        <div class="form-group">
+                            <label>排除词</label>
+                            <input type="text" id="delete_keywords" name="delete_keywords" placeholder="广告,垃圾信息..." onblur="autoSaveSearchConfig()">
+                        </div>
+                        <div class="form-group">
+                            <label>类型</label>
+                            <select id="message_type" name="message_type">
+                                <option value="">所有类型</option>
+                                <option value="1">文本</option>
+                                <option value="3">图片</option>
+                                <option value="34">语音</option>
+                                <option value="43">视频</option>
+                                <option value="47">表情</option>
+                                <option value="49">链接/应用</option>
+                                <option value="10000">系统消息</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>排除 / 去重选项</label>
+                            <div style="display:flex; gap:14px; flex-wrap:wrap; padding:8px; border:1px dashed #ddd; background:#fcfcfc; font-size:12px; align-items:center;">
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:bold; cursor:pointer;">
+                                    <input type="checkbox" id="exclude_self" name="exclude_self" value="true" style="width:16px; height:16px; accent-color: var(--primary-blue);">
+                                    排除自己
+                                </label>
+                                <span style="border-left:1px solid #ddd; height:18px;"></span>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:bold; cursor:pointer;">
+                                    <input type="checkbox" id="dedup_day" style="width:16px; height:16px; accent-color: var(--primary-blue);">
+                                    按日去重
+                                </label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:bold; cursor:pointer;">
+                                    <input type="checkbox" id="dedup_content_latest" style="width:16px; height:16px; accent-color: var(--primary-blue);">
+                                    按内容去重（保留最晚）
+                                </label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:bold; cursor:pointer;">
+                                    <input type="checkbox" id="dedup_content_earliest" style="width:16px; height:16px; accent-color: var(--primary-blue);">
+                                    按内容去重（保留最早）
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>股票筛选 <small>(可多选)</small> <span id="stock-status" style="font-weight: normal; font-size: 11px; color: #999;">// 检查中...</span></label>
+                            <div class="stock-filter-options" style="display: flex; gap: 20px; flex-wrap: wrap; padding: 10px; background: #fcfcfc; border: var(--border-width) solid #ccc; font-family: 'Courier New', Courier, monospace; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; text-transform: uppercase; font-weight: bold;">
+                                    <input type="checkbox" id="stock_a" name="stock_markets" value="a_stock" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [A股]
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; text-transform: uppercase; font-weight: bold;">
+                                    <input type="checkbox" id="stock_hk" name="stock_markets" value="hk_stock" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [港股]
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; text-transform: uppercase; font-weight: bold;">
+                                    <input type="checkbox" id="stock_us" name="stock_markets" value="us_stock" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [美股]
+                                </label>
+                                <span style="border-left: 1px solid #ccc; height: 20px; margin: 0 5px;"></span>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                    <input type="checkbox" id="match_stock_code" name="match_stock_code" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> 匹配代码
+                                </label>
+                                <span style="border-left: 1px solid #ccc; height: 20px; margin: 0 5px;"></span>
+                                <button type="button" id="stock-load-btn" onclick="loadStockData()" style="padding: 4px 10px; font-size: 11px; background: var(--primary-blue); color: white; border: 1px solid var(--primary-dark); cursor: pointer; font-family: inherit; display: none;">[加载股票数据]</button>
+                                <span id="stock-count" style="color: var(--text-dim); font-size: 11px; margin-left: auto;"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="search-actions">
+                        <button type="submit" class="btn" style="flex: 2;">[搜索聊天]</button>
+                        <button type="button" class="btn" onclick="clearForm()" style="flex: 1;">[重置]</button>
+                        <button type="button" class="btn" onclick="exportResults()" id="export-btn" disabled style="flex: 2;">[导出数据]</button>
+                    </div>
+                </form>
+
+                <!-- SEARCH RESULTS AREA -->
+                <div class="results-area">
+                    <!-- 搜索进度条 -->
+                    <div id="search-progress" style="display: none; padding: 20px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px;">
+                            <span id="search-progress-text">正在搜索...</span>
+                            <span id="search-progress-percent">0%</span>
+                        </div>
+                        <div class="progress-bar-container" style="height: 20px; background: #e0e0e0; border: var(--border-width) solid #ccc; position: relative; overflow: hidden;">
+                            <div id="search-progress-bar" class="progress-bar-fill" style="height: 100%; width: 0%; background: var(--primary-blue); transition: width 0.3s ease;"></div>
+                            <div class="progress-bar-stripes" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px); animation: progress-stripes 1s linear infinite;"></div>
+                        </div>
+                    </div>
+                    
+                    <div id="loading" class="loading" style="display: none; text-align: center; padding: 20px;">
+                        <div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--primary-blue); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+                        <div style="margin-top: 10px;">扫描数据库中...</div>
+                    </div>
+
+                    <div id="results-header" class="results-header" style="display: none;">
+                        <div class="results-count" id="results-count">结果: 0</div>
+                    </div>
+
+                    <div id="results-container">
+                        <div class="empty-state" style="text-align: center; padding: 40px; color: #999;">
+                            <div class="empty-state-icon" style="font-size: 40px; margin-bottom: 10px;">[?]</div>
+                            <p>无搜索参数。等待输入。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 3: AI INTELLIGENCE -->
             <div class="card" id="ai-chat-section">
-                <div class="module-label">模块 B: 智能</div>
+                <div class="module-label">模块 C: 智能</div>
                 <div class="card-title">AI 分析系统 <small style="font-weight: normal; font-size: 12px;">(兼容 OPENAI 格式)</small></div>
                 
                 <!-- AI Config Area -->
@@ -519,127 +646,21 @@
                             <button class="btn btn-small" onclick="useSearchResults()" id="use-results-btn" disabled style="width: auto; padding: 5px 10px; font-size: 12px;">
                                 [导入搜索结果]
                             </button>
+                            <button class="btn btn-small" onclick="exportChatHistory()" id="export-chat-btn" disabled style="width: auto; padding: 5px 10px; font-size: 12px;">
+                                [导出对话]
+                            </button>
+                            <button class="btn btn-small" onclick="answerMessagesWithPrompt()" id="btn-answer-each" style="width: auto; padding: 5px 10px; font-size: 12px;">
+                                [按提示词逐条作答]
+                            </button>
+                            <button class="btn btn-small" onclick="answerAllWithPrompt()" id="btn-answer-all" style="width: auto; padding: 5px 10px; font-size: 12px;">
+                                [按提示词全量作答]
+                            </button>
                             <button class="btn btn-small" onclick="clearChat()" style="width: auto; padding: 5px 10px; font-size: 12px;">
                                 [重置系统]
                             </button>
                         </div>
                         <div class="chat-input-row" style="display: flex; gap: 10px;">
                             <textarea id="chat-input" placeholder="输入查询..." rows="2" onkeydown="handleChatKeydown(event)" style="flex: 1; padding: 10px; border: 2px solid #ddd; border-radius: 0; resize: none; font-family: inherit;"></textarea>
-                            <button class="btn chat-send-btn" onclick="sendChatMessage()" id="send-btn" style="width: 100px; margin: 0;">
-                                发送
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- SECTION 3: SEARCH CHAT -->
-            <div class="card">
-                <div class="module-label">模块 C: 搜索</div>
-                <div class="card-title">搜索聊天记录</div>
-                
-                <form id="search-form">
-                    <div class="search-grid">
-                        <div class="form-group">
-                            <label>开始日期</label>
-                            <input type="date" id="start_date" name="start_date" onchange="autoSaveSearchConfig()">
-                        </div>
-                        <div class="form-group">
-                            <label>结束日期</label>
-                            <input type="date" id="end_date" name="end_date" onchange="autoSaveSearchConfig()">
-                        </div>
-                        <div class="form-group">
-                            <label>聊天对象</label>
-                            <input type="text" id="chat_name" name="chat_name" placeholder="姓名1,姓名2..." onblur="autoSaveSearchConfig()">
-                        </div>
-                        <div class="form-group">
-                            <label>发送者</label>
-                            <input type="text" id="sender_name" name="sender_name" placeholder="发送者1,发送者2...">
-                        </div>
-                        <div class="form-group">
-                            <label>关键词</label>
-                            <input type="text" id="keyword" name="keyword" placeholder="文本内容..." onblur="autoSaveSearchConfig()">
-                        </div>
-                        <div class="form-group">
-                            <label>排除词</label>
-                            <input type="text" id="delete_keywords" name="delete_keywords" placeholder="广告,垃圾信息..." onblur="autoSaveSearchConfig()">
-                        </div>
-                        <div class="form-group">
-                            <label>类型</label>
-                            <select id="message_type" name="message_type">
-                                <option value="">所有类型</option>
-                                <option value="1">文本</option>
-                                <option value="3">图片</option>
-                                <option value="34">语音</option>
-                                <option value="43">视频</option>
-                                <option value="47">表情</option>
-                                <option value="49">链接/应用</option>
-                                <option value="10000">系统消息</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>排除自己</label>
-                            <select id="exclude_self" name="exclude_self">
-                                <option value="false">否</option>
-                                <option value="true">是</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="grid-column: span 2;">
-                            <label>股票筛选 <small>(可多选)</small> <span id="stock-status" style="font-weight: normal; font-size: 11px; color: #999;">// 检查中...</span></label>
-                            <div class="stock-filter-options" style="display: flex; gap: 20px; flex-wrap: wrap; padding: 10px; background: #fcfcfc; border: var(--border-width) solid #ccc; font-family: 'Courier New', Courier, monospace; align-items: center;">
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; text-transform: uppercase; font-weight: bold;">
-                                    <input type="checkbox" id="stock_a" name="stock_markets" value="a_stock" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [A股]
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; text-transform: uppercase; font-weight: bold;">
-                                    <input type="checkbox" id="stock_hk" name="stock_markets" value="hk_stock" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [港股]
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; text-transform: uppercase; font-weight: bold;">
-                                    <input type="checkbox" id="stock_us" name="stock_markets" value="us_stock" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [美股]
-                                </label>
-                                <span style="border-left: 1px solid #ccc; height: 20px; margin: 0 5px;"></span>
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; font-weight: bold;">
-                                    <input type="checkbox" id="match_stock_code" name="match_stock_code" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> 匹配代码
-                                </label>
-                                <span style="border-left: 1px solid #ccc; height: 20px; margin: 0 5px;"></span>
-                                <button type="button" id="stock-load-btn" onclick="loadStockData()" style="padding: 4px 10px; font-size: 11px; background: var(--primary-blue); color: white; border: 1px solid var(--primary-dark); cursor: pointer; font-family: inherit; display: none;">[加载股票数据]</button>
-                                <span id="stock-count" style="color: var(--text-dim); font-size: 11px; margin-left: auto;"></span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="search-actions">
-                        <button type="submit" class="btn" style="flex: 2;">[搜索聊天]</button>
-                        <button type="button" class="btn" onclick="clearForm()" style="flex: 1;">[重置]</button>
-                        <button type="button" class="btn" onclick="exportResults()" id="export-btn" disabled style="flex: 2;">[导出数据]</button>
-                    </div>
-                </form>
-
-                <!-- SEARCH RESULTS AREA -->
-                <div class="results-area">
-                    <!-- 搜索进度条 -->
-                    <div id="search-progress" style="display: none; padding: 20px;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px;">
-                            <span id="search-progress-text">正在搜索...</span>
-                            <span id="search-progress-percent">0%</span>
-                        </div>
-                        <div class="progress-bar-container" style="height: 20px; background: #e0e0e0; border: var(--border-width) solid #ccc; position: relative; overflow: hidden;">
-                            <div id="search-progress-bar" class="progress-bar-fill" style="height: 100%; width: 0%; background: var(--primary-blue); transition: width 0.3s ease;"></div>
-                            <div class="progress-bar-stripes" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px); animation: progress-stripes 1s linear infinite;"></div>
-                        </div>
-                    </div>
-                    
-                    <div id="loading" class="loading" style="display: none; text-align: center; padding: 20px;">
-                        <div class="spinner" style="border: 3px solid #f3f3f3; border-top: 3px solid var(--primary-blue); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto;"></div>
-                        <div style="margin-top: 10px;">扫描数据库中...</div>
-                    </div>
-
-                    <div id="results-header" class="results-header" style="display: none;">
-                        <div class="results-count" id="results-count">结果: 0</div>
-                    </div>
-
-                    <div id="results-container">
-                        <div class="empty-state" style="text-align: center; padding: 40px; color: #999;">
-                            <div class="empty-state-icon" style="font-size: 40px; margin-bottom: 10px;">[?]</div>
-                            <p>无搜索参数。等待输入。</p>
                         </div>
                     </div>
                 </div>
@@ -650,7 +671,7 @@
                 <div class="module-label">模块 D: 复盘</div>
                 <div class="card-title">个股K线复盘</div>
                 
-                <div class="config-grid">
+                <div class="config-grid" style="grid-template-columns: repeat(3, 1fr);">
                     <div class="form-group">
                         <label>股票代码 <small>(如 000001, 600000)</small></label>
                         <input type="text" id="review_stock_code" placeholder="输入股票代码...">
@@ -663,10 +684,19 @@
                         <label>结束日期</label>
                         <input type="date" id="review_end_date">
                     </div>
+                    <div class="form-group">
+                        <label>额外搜索词 <small>(逗号分隔)</small></label>
+                        <input type="text" id="review_search_keywords" placeholder="关键词1,关键词2...">
+                    </div>
+                    <div class="form-group">
+                        <label>过滤关键词 <small>(排除含有这些词的消息)</small></label>
+                        <input type="text" id="review_delete_keywords" placeholder="广告,垃圾...">
+                    </div>
                 </div>
                 
-                <div class="decrypt-actions" style="grid-template-columns: 1fr 1fr;">
+                <div class="decrypt-actions" style="grid-template-columns: 1fr 1fr 1fr;">
                     <button class="btn" onclick="generateKlineReview()" id="review-btn">[生成K线复盘]</button>
+                    <button class="btn" onclick="exportReviewMessages()" id="export-review-btn" disabled>[导出聊天记录]</button>
                     <button class="btn" onclick="clearReview()">[重置]</button>
                 </div>
                 
@@ -703,7 +733,7 @@
         
         <!-- Footer -->
         <div style="text-align: center; margin-top: 40px; font-size: 10px; color: #999; font-family: 'Courier New', Courier, monospace;">
-            (c) 2025 GUOHAI SECURITIES CO., LTD. | SYSTEM VERSION 1.2
+            (c) 2025 GUOHAI SECURITIES CO., LTD. | SYSTEM VERSION 2.0
         </div>
     </div>
 
@@ -780,13 +810,33 @@
         // AI聊天相关变量
         let chatHistory = [];
         let chatContext = '';
+        let isInjectingContext = false;
+        
+        // 复盘相关变量
+        let currentReviewData = null;
         let isStreaming = false;
 
         // 页面加载时初始化
         window.onload = function() {
             loadConfig();
             checkStockDataStatus();
+            initDedupToggle();
         };
+        
+        function initDedupToggle() {
+            const latest = document.getElementById('dedup_content_latest');
+            const earliest = document.getElementById('dedup_content_earliest');
+            if (latest) {
+                latest.addEventListener('change', () => {
+                    if (latest.checked && earliest) earliest.checked = false;
+                });
+            }
+            if (earliest) {
+                earliest.addEventListener('change', () => {
+                    if (earliest.checked && latest) latest.checked = false;
+                });
+            }
+        }
         
         // 检查股票数据加载状态
         function checkStockDataStatus() {
@@ -1148,8 +1198,13 @@
                 searchParams['match_stock_code'] = document.getElementById('match_stock_code').checked;
             }
 
-            // 默认启用去重
-            searchParams['deduplicate'] = true;
+            // 排除自己
+            searchParams['exclude_self'] = document.getElementById('exclude_self').checked;
+
+            // 去重选项
+            searchParams['dedup_day'] = document.getElementById('dedup_day').checked;
+            searchParams['dedup_content_latest'] = document.getElementById('dedup_content_latest').checked;
+            searchParams['dedup_content_earliest'] = document.getElementById('dedup_content_earliest').checked;
 
             currentSearchParams = searchParams;
             performSearch(searchParams);
@@ -1200,8 +1255,12 @@
                     showProgress('search', false);
                     
                     if (data.success) {
-                        // 前端去重：同一天内相同聊天对象+发送者+内容的记录只保留一条
-                        let dedupedResults = deduplicateResults(data.results);
+                        // 前端去重：根据用户勾选的选项
+                        let dedupedResults = deduplicateResults(data.results, {
+                            dedup_day: params.dedup_day,
+                            dedup_content_latest: params.dedup_content_latest,
+                            dedup_content_earliest: params.dedup_content_earliest
+                        });
                         currentResults = dedupedResults;
                         displayResults(dedupedResults, data.stats);
                         document.getElementById('export-btn').disabled = dedupedResults.length === 0;
@@ -1217,23 +1276,48 @@
             });
         }
 
-        // 去重函数：同一天内相同聊天对象+发送者+内容的记录只保留一条
-        function deduplicateResults(results) {
-            const seen = new Set();
-            return results.filter(msg => {
-                // 提取日期部分 (YYYY-MM-DD)
-                const dateOnly = msg.time ? msg.time.split(' ')[0] : '';
-                // 生成唯一键：日期+聊天对象+发送者+内容
-                const key = `${dateOnly}|${msg.chat_name}|${msg.sender}|${msg.content}`;
-                if (seen.has(key)) {
-                    return false;
-                }
-                seen.add(key);
-                return true;
-            });
+        // 去重函数（支持多种模式）
+        function deduplicateResults(results, options = {}) {
+            let deduped = Array.isArray(results) ? [...results] : [];
+            const { dedup_day, dedup_content_latest, dedup_content_earliest } = options;
+
+            // 按内容去重（保留最早/最晚）
+            if (dedup_content_latest || dedup_content_earliest) {
+                const map = new Map();
+                deduped.forEach(msg => {
+                    const key = `${msg.chat_name}|${msg.sender}|${msg.content}`;
+                    if (!map.has(key) || dedup_content_latest) {
+                        map.set(key, msg); // 覆盖则保留最后一次
+                    }
+                });
+                deduped = Array.from(map.values());
+            }
+
+            // 按日去重（同一天 同聊天+发送者+内容仅一条）
+            if (dedup_day) {
+                const seen = new Set();
+                deduped = deduped.filter(msg => {
+                    const dateOnly = msg.time ? msg.time.split(' ')[0] : '';
+                    const key = `${dateOnly}|${msg.chat_name}|${msg.sender}|${msg.content}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+            }
+
+            return deduped;
         }
 
         // 显示结果
+        function renderCollapsibleText(text, limit = 280) {
+            if (!text) return '';
+            const full = text.toString();
+            const escapedFull = escapeHtml(full);
+            if (escapedFull.length <= limit) return escapedFull;
+            const short = escapedFull.slice(0, limit);
+            return `<span class="collapsible" data-full="${encodeURIComponent(full)}" data-limit="${limit}" data-expanded="false">${short}... <a href="#" class="toggle-collapsible">[展开]</a></span>`;
+        }
+
         function displayResults(results, stats) {
             const container = document.getElementById('results-container');
             const header = document.getElementById('results-header');
@@ -1275,7 +1359,7 @@
                             </div>
                             <span class="message-type">${msg.type_name}</span>
                         </div>
-                        <div class="message-content">${escapeHtml(msg.content)}</div>
+                        <div class="message-content">${renderCollapsibleText(msg.content, 320)}</div>
                     </div>
                 `;
             });
@@ -1307,6 +1391,14 @@
         function clearForm() {
             document.getElementById('sender_name').value = '';
             document.getElementById('message_type').value = '';
+            const excludeSelfEl = document.getElementById('exclude_self');
+            if (excludeSelfEl) excludeSelfEl.checked = false;
+            const dedupDayEl = document.getElementById('dedup_day');
+            if (dedupDayEl) dedupDayEl.checked = false;
+            const dedupLatestEl = document.getElementById('dedup_content_latest');
+            if (dedupLatestEl) dedupLatestEl.checked = false;
+            const dedupEarliestEl = document.getElementById('dedup_content_earliest');
+            if (dedupEarliestEl) dedupEarliestEl.checked = false;
 
             document.getElementById('results-container').innerHTML = `
                 <div class="empty-state" style="text-align:center; padding: 20px; color: #999;">
@@ -1509,6 +1601,228 @@
             addSystemMessage(`已加载 ${currentResults.length} 条记录`);
         }
 
+        async function answerMessagesWithPrompt() {
+            if (isStreaming) return;
+            if (!currentResults || currentResults.length === 0) {
+                alert('请先完成聊天记录搜索');
+                return;
+            }
+
+            const apiBase = document.getElementById('llm_api_base').value;
+            const apiKey = document.getElementById('llm_api_key').value;
+            const model = document.getElementById('llm_model').value;
+            if (!apiBase || !apiKey || !model) {
+                alert('API 配置缺失');
+                return;
+            }
+
+            const inputEl = document.getElementById('chat-input');
+            const prompt = (inputEl?.value || '').trim();
+            if (!prompt) {
+                alert('请输入提示词');
+                return;
+            }
+
+            const limited = currentResults; // 不做数量限制
+            addSystemMessage(`开始逐条作答，条数：${limited.length}`);
+
+            isStreaming = true;
+            const sendBtn = document.getElementById('send-btn');
+            const eachBtn = document.getElementById('btn-answer-each');
+            const allBtn = document.getElementById('btn-answer-all');
+            if (sendBtn) sendBtn.disabled = true;
+            if (eachBtn) eachBtn.disabled = true;
+            if (allBtn) allBtn.disabled = true;
+
+            try {
+                for (let i = 0; i < limited.length; i++) {
+                    const msg = limited[i];
+                    const userText = `[记录 #${i + 1}] ${msg.time} | ${msg.chat_name} | ${msg.sender}\n${msg.content}\n\n提示词：${prompt}`;
+                    addMessageBubble('user', userText);
+                    chatHistory.push({ role: 'user', content: userText });
+
+                    addTypingIndicator();
+                    const response = await fetch('/api/llm/chat/stream', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            message: prompt,
+                            context: `时间:${msg.time}\n对象:${msg.chat_name}\n发送者:${msg.sender}\n内容:${msg.content}`,
+                            history: [],
+                            api_base: apiBase,
+                            model: model,
+                            api_key: apiKey,
+                            temperature: parseFloat(document.getElementById('llm_temperature').value) || 0.7,
+                            max_tokens: parseInt(document.getElementById('llm_max_tokens').value) || 2000
+                        })
+                    });
+
+                    removeTypingIndicator();
+                    if (!response.ok) {
+                        addMessageBubble('assistant', `[X] 记录 #${i + 1} 请求失败: HTTP ${response.status}`);
+                        continue;
+                    }
+
+                    const assistantBubble = addMessageBubble('assistant', '');
+                    const contentDiv = assistantBubble.querySelector('.bubble-content');
+                    let fullResponse = '';
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.slice(6));
+                                    if (data.content) {
+                                        fullResponse += data.content;
+                                        contentDiv.innerHTML = formatMessage(fullResponse);
+                                        document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+                                    } else if (data.error) {
+                                        throw new Error(data.error);
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                    }
+                    if (fullResponse) {
+                        // 长内容折叠
+                        if (fullResponse.length > 400) {
+                            contentDiv.innerHTML = renderCollapsibleText(fullResponse, 400);
+                        } else {
+                            contentDiv.innerHTML = formatMessage(fullResponse);
+                        }
+                        chatHistory.push({ role: 'assistant', content: fullResponse });
+                    }
+                }
+                addSystemMessage('逐条作答完成');
+                updateExportChatBtn();
+            } catch (err) {
+                removeTypingIndicator();
+                addMessageBubble('assistant', `[X] 逐条作答错误: ${err.message}`);
+            } finally {
+                isStreaming = false;
+                if (sendBtn) sendBtn.disabled = false;
+                if (eachBtn) eachBtn.disabled = false;
+                if (allBtn) allBtn.disabled = false;
+            }
+        }
+
+        async function answerAllWithPrompt() {
+            if (isStreaming) return;
+            if (!currentResults || currentResults.length === 0) {
+                alert('请先完成聊天记录搜索');
+                return;
+            }
+
+            const apiBase = document.getElementById('llm_api_base').value;
+            const apiKey = document.getElementById('llm_api_key').value;
+            const model = document.getElementById('llm_model').value;
+            if (!apiBase || !apiKey || !model) {
+                alert('API 配置缺失');
+                return;
+            }
+
+            const inputEl = document.getElementById('chat-input');
+            const prompt = (inputEl?.value || '').trim();
+            if (!prompt) {
+                alert('请输入提示词');
+                return;
+            }
+
+            // 组装上下文（不做数量限制，注意体积可能较大）
+            const contextText = currentResults.map((msg, idx) => `[${idx + 1}] ${msg.time} - ${msg.chat_name} - ${msg.sender}: ${msg.content}`).join('\n');
+            chatContext = contextText;
+            document.getElementById('context-bar').style.display = 'flex';
+            document.getElementById('use-results-btn').disabled = true;
+
+            addSystemMessage(`全量作答，使用 ${currentResults.length} 条聊天记录`);
+
+            // 复用流式发送逻辑
+            const sendBtn = document.getElementById('send-btn');
+            const eachBtn = document.getElementById('btn-answer-each');
+            const allBtn = document.getElementById('btn-answer-all');
+            isStreaming = true;
+            if (sendBtn) sendBtn.disabled = true;
+            if (eachBtn) eachBtn.disabled = true;
+            if (allBtn) allBtn.disabled = true;
+
+            // 将提示词作为用户消息，context为拼接的聊天记录
+            const userMessage = prompt;
+            addMessageBubble('user', userMessage);
+            chatHistory.push({ role: 'user', content: userMessage });
+            addTypingIndicator();
+
+            try {
+                const response = await fetch('/api/llm/chat/stream', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message: userMessage,
+                        context: contextText,
+                        history: chatHistory.slice(0, -1),
+                        api_base: apiBase,
+                        model: model,
+                        api_key: apiKey,
+                        temperature: parseFloat(document.getElementById('llm_temperature').value) || 0.7,
+                        max_tokens: parseInt(document.getElementById('llm_max_tokens').value) || 2000
+                    })
+                });
+
+                removeTypingIndicator();
+                if (!response.ok) {
+                    addMessageBubble('assistant', `[X] 全量作答失败: HTTP ${response.status}`);
+                    return;
+                }
+
+                const assistantBubble = addMessageBubble('assistant', '');
+                const contentDiv = assistantBubble.querySelector('.bubble-content');
+                let fullResponse = '';
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.content) {
+                                    fullResponse += data.content;
+                                    contentDiv.innerHTML = formatMessage(fullResponse);
+                                    document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+                                } else if (data.error) {
+                                    throw new Error(data.error);
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
+                if (fullResponse) {
+                    if (fullResponse.length > 600) {
+                        contentDiv.innerHTML = renderCollapsibleText(fullResponse, 600);
+                    } else {
+                        contentDiv.innerHTML = formatMessage(fullResponse);
+                    }
+                    chatHistory.push({ role: 'assistant', content: fullResponse });
+                    updateExportChatBtn();
+                }
+            } catch (err) {
+                removeTypingIndicator();
+                addMessageBubble('assistant', `[X] 全量作答错误: ${err.message}`);
+            } finally {
+                isStreaming = false;
+                if (sendBtn) sendBtn.disabled = false;
+                if (eachBtn) eachBtn.disabled = false;
+                if (allBtn) allBtn.disabled = false;
+            }
+        }
+
         function clearContext() {
             chatContext = '';
             document.getElementById('context-bar').style.display = 'none';
@@ -1575,6 +1889,28 @@
             html = html.replace(/\n/g, '<br>');
             return html;
         }
+
+        // 全局折叠/展开事件代理
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('toggle-collapsible')) {
+                e.preventDefault();
+                const span = e.target.closest('.collapsible');
+                if (!span) return;
+                const expanded = span.dataset.expanded === 'true';
+                const limit = parseInt(span.dataset.limit || '0', 10);
+                const full = decodeURIComponent(span.dataset.full || '');
+                if (!expanded) {
+                    span.innerHTML = `${formatMessage(full)} <a href="#" class="toggle-collapsible">[收起]</a>`;
+                    span.dataset.expanded = 'true';
+                } else {
+                    const shortEscaped = escapeHtml(full).slice(0, limit);
+                    span.innerHTML = `${shortEscaped}... <a href="#" class="toggle-collapsible">[展开]</a>`;
+                    span.dataset.expanded = 'false';
+                }
+                span.dataset.full = encodeURIComponent(full);
+                span.dataset.limit = limit;
+            }
+        });
 
         function addTypingIndicator() {
             const messagesContainer = document.getElementById('chat-messages');
@@ -1684,6 +2020,7 @@
                 
                 if (fullResponse) {
                     chatHistory.push({ role: 'assistant', content: fullResponse });
+                    updateExportChatBtn();
                 }
                 
             } catch (error) {
@@ -1700,6 +2037,42 @@
             originalDisplayResults(results, stats);
             document.getElementById('use-results-btn').disabled = results.length === 0;
         };
+
+        // ==================== AI对话导出功能 ====================
+        
+        // 导出AI对话历史
+        function exportChatHistory() {
+            if (chatHistory.length === 0) {
+                alert('没有对话记录可导出');
+                return;
+            }
+            
+            fetch('/api/llm/export', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    history: chatHistory,
+                    context: chatContext
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = '/api/download/' + data.filename;
+                    addSystemMessage(`已导出 ${data.count} 条对话`);
+                } else {
+                    alert('导出失败: ' + data.message);
+                }
+            })
+            .catch(err => {
+                alert('导出失败: ' + err.message);
+            });
+        }
+        
+        // 更新导出按钮状态（在发送消息成功后调用）
+        function updateExportChatBtn() {
+            document.getElementById('export-chat-btn').disabled = chatHistory.length === 0;
+        }
 
         // ==================== 股票复盘功能 ====================
         
@@ -1757,6 +2130,10 @@
                 }
             }, 400);
             
+            // 获取额外搜索词和过滤词
+            const searchKeywords = document.getElementById('review_search_keywords').value.trim();
+            const deleteKeywords = document.getElementById('review_delete_keywords').value.trim();
+            
             try {
                 const response = await fetch('/api/stock/review', {
                     method: 'POST',
@@ -1764,7 +2141,9 @@
                     body: JSON.stringify({
                         code: code,
                         start_date: startDate,
-                        end_date: endDate
+                        end_date: endDate,
+                        search_keywords: searchKeywords,
+                        delete_keywords: deleteKeywords
                     })
                 });
                 
@@ -1796,6 +2175,11 @@
         
         // 显示K线复盘结果
         function displayKlineReview(data) {
+            // 保存复盘数据供导出使用
+            currentReviewData = data;
+            // 启用导出按钮（有K线数据或消息即可导出）
+            document.getElementById('export-review-btn').disabled = (!data.kline_data || data.kline_data.length === 0) && (!data.messages || data.messages.length === 0);
+            
             const chartContainer = document.getElementById('kline-chart-container');
             const stockInfo = document.getElementById('kline-stock-info');
             const messagesContainer = document.getElementById('review-messages-container');
@@ -1896,11 +2280,15 @@
         // 清空复盘
         function clearReview() {
             document.getElementById('review_stock_code').value = '';
+            document.getElementById('review_search_keywords').value = '';
+            document.getElementById('review_delete_keywords').value = '';
             document.getElementById('review-message').innerHTML = '';
             document.getElementById('kline-chart-container').style.display = 'none';
             document.getElementById('review-messages-container').style.display = 'none';
             document.getElementById('kline-chart-iframe').srcdoc = '';
             document.getElementById('review-messages-list').innerHTML = '';
+            document.getElementById('export-review-btn').disabled = true;
+            currentReviewData = null;
             
             // 重置日期为最近30天
             const today = new Date();
@@ -1909,6 +2297,41 @@
             const formatDate = (d) => d.toISOString().split('T')[0];
             document.getElementById('review_start_date').value = formatDate(thirtyDaysAgo);
             document.getElementById('review_end_date').value = formatDate(today);
+        }
+        
+        // 导出复盘聊天记录和K线数据
+        function exportReviewMessages() {
+            if (!currentReviewData) {
+                alert('没有复盘数据可导出');
+                return;
+            }
+            
+            const msgDiv = document.getElementById('review-message');
+            
+            fetch('/api/stock/review/export', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    stock_name: currentReviewData.stock_name,
+                    stock_code: currentReviewData.stock_code,
+                    messages: currentReviewData.messages || [],
+                    kline_data: currentReviewData.kline_data || [],
+                    messages_by_date: currentReviewData.messages_by_date || {}
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = '/api/download/' + data.filename;
+                    msgDiv.innerHTML = `<div class="alert alert-success">[OK] 已导出 ${data.kline_count} 天K线 + ${data.count} 条聊天记录</div>`;
+                    setTimeout(() => msgDiv.innerHTML = '', 3000);
+                } else {
+                    msgDiv.innerHTML = `<div class="alert alert-error">[X] 导出失败: ${data.message}</div>`;
+                }
+            })
+            .catch(err => {
+                msgDiv.innerHTML = `<div class="alert alert-error">[X] 导出失败: ${err.message}</div>`;
+            });
         }
     </script>
 </body>
