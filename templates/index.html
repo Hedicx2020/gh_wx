@@ -329,10 +329,14 @@
         }
 
         .chat-messages {
-            background-image: 
+            background-image:
                 linear-gradient(#eee 1px, transparent 1px),
                 linear-gradient(90deg, #eee 1px, transparent 1px);
             background-size: 20px 20px;
+            height: 300px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 15px;
         }
 
         .message-bubble .bubble-content {
@@ -458,12 +462,12 @@
                 <form id="search-form">
                     <div class="search-grid">
                         <div class="form-group">
-                            <label>开始日期</label>
-                            <input type="date" id="start_date" name="start_date" onchange="autoSaveSearchConfig()">
+                            <label>开始时间 <small>(精确到分钟)</small></label>
+                            <input type="datetime-local" id="start_date" name="start_date" onchange="autoSaveSearchConfig()">
                         </div>
                         <div class="form-group">
-                            <label>结束日期</label>
-                            <input type="date" id="end_date" name="end_date" onchange="autoSaveSearchConfig()">
+                            <label>结束时间 <small>(精确到分钟)</small></label>
+                            <input type="datetime-local" id="end_date" name="end_date" onchange="autoSaveSearchConfig()">
                         </div>
                         <div class="form-group">
                             <label>聊天对象</label>
@@ -472,6 +476,10 @@
                         <div class="form-group">
                             <label>发送者</label>
                             <input type="text" id="sender_name" name="sender_name" placeholder="发送者1,发送者2...">
+                        </div>
+                        <div class="form-group">
+                            <label>排除对象 <small>(不看这些人)</small></label>
+                            <input type="text" id="exclude_contacts" name="exclude_contacts" placeholder="张三,李四..." onblur="autoSaveSearchConfig()">
                         </div>
                         <div class="form-group">
                             <label>关键词</label>
@@ -598,7 +606,7 @@
                             <input type="password" id="llm_api_key" placeholder="sk-...">
                         </div>
                     </div>
-                    <div class="config-grid" style="grid-template-columns: 1fr 1fr;">
+                    <div class="config-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                         <div class="form-group">
                             <label>温度 (0-1)</label>
                             <input type="number" id="llm_temperature" value="0.7" min="0" max="1" step="0.1">
@@ -606,6 +614,10 @@
                         <div class="form-group">
                             <label>最大 TOKEN</label>
                             <input type="number" id="llm_max_tokens" value="2000" min="100" max="8000">
+                        </div>
+                        <div class="form-group">
+                            <label>并发数 <small>(逐条作答)</small></label>
+                            <input type="number" id="llm_concurrency" value="3" min="1" max="10" step="1">
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
@@ -623,26 +635,9 @@
 
                 <!-- Chat Interface -->
                 <div class="chat-container">
-                    <div class="chat-messages" id="chat-messages">
-                        <div class="chat-welcome">
-                            <div class="welcome-icon" style="font-size: 40px; margin-bottom: 20px;">[AI]</div>
-                            <h3>AI 系统就绪</h3>
-                            <p>等待输入。请先配置 API。</p>
-                            <div class="welcome-tips" style="margin-top: 20px; font-size: 12px; color: #888;">
-                                <div>> 搜索结果可用作上下文</div>
-                                <div>> 系统保留对话历史</div>
-                                <div>> 兼容标准 LLM API</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="chat-context-bar" id="context-bar" style="display: none; padding: 10px; background: #f0f7ff; border-top: 1px solid #ddd; justify-content: space-between; align-items: center;">
-                        <span class="context-label" style="font-size: 12px; color: var(--primary-blue);">[上下文: 已加载搜索结果]</span>
-                        <button class="context-clear" onclick="clearContext()" style="background: none; border: none; cursor: pointer; color: #999;">[清除]</button>
-                    </div>
-                    
-                    <div class="chat-input-area" style="padding: 15px; background: #fff; border-top: 1px solid #ddd;">
-                        <div class="chat-actions" style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <!-- 按钮和输入区域在上方 -->
+                    <div class="chat-input-area" style="padding: 15px; background: #fff; border-bottom: 1px solid #ddd;">
+                        <div class="chat-actions" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
                             <button class="btn btn-small" onclick="useSearchResults()" id="use-results-btn" disabled style="width: auto; padding: 5px 10px; font-size: 12px;">
                                 [导入搜索结果]
                             </button>
@@ -655,15 +650,43 @@
                             <button class="btn btn-small" onclick="answerAllWithPrompt()" id="btn-answer-all" style="width: auto; padding: 5px 10px; font-size: 12px;">
                                 [按提示词全量作答]
                             </button>
+                            <button class="btn btn-small" onclick="generateStockReport()" id="btn-stock-report" style="width: auto; padding: 5px 10px; font-size: 12px;">
+                                [生成股票推荐报告]
+                            </button>
                             <button class="btn btn-small" onclick="clearChat()" style="width: auto; padding: 5px 10px; font-size: 12px;">
                                 [重置系统]
                             </button>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 10px;">
+                            <label style="font-size: 12px; color: #666;">报告提示词 <small>(AI会根据此提示词分析每条消息，提取股票推荐信息)</small></label>
+                            <textarea id="report-prompt" rows="2" style="width: 100%; padding: 8px; border: 2px solid #ddd; font-family: 'Courier New', monospace; font-size: 12px; resize: vertical;">分析这条聊天是否在推荐股票。如果是，提取：股票名称、推荐理由。如果不是股票推荐则忽略。</textarea>
                         </div>
                         <div class="chat-input-row" style="display: flex; gap: 10px;">
                             <textarea id="chat-input" placeholder="输入查询..." rows="2" onkeydown="handleChatKeydown(event)" style="flex: 1; padding: 10px; border: 2px solid #ddd; border-radius: 0; resize: none; font-family: inherit;"></textarea>
                         </div>
                     </div>
+
+                    <div class="chat-context-bar" id="context-bar" style="display: none; padding: 10px; background: #f0f7ff; border-bottom: 1px solid #ddd; justify-content: space-between; align-items: center;">
+                        <span class="context-label" style="font-size: 12px; color: var(--primary-blue);">[上下文: 已加载搜索结果]</span>
+                        <button class="context-clear" onclick="clearContext()" style="background: none; border: none; cursor: pointer; color: #999;">[清除]</button>
+                    </div>
+
+                    <!-- 聊天记录在下方 -->
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="chat-welcome">
+                            <div class="welcome-icon" style="font-size: 40px; margin-bottom: 20px;">[AI]</div>
+                            <h3>AI 系统就绪</h3>
+                            <p>等待输入。请先配置 API。</p>
+                            <div class="welcome-tips" style="margin-top: 20px; font-size: 12px; color: #888;">
+                                <div>> 搜索结果可用作上下文</div>
+                                <div>> 系统保留对话历史</div>
+                                <div>> 兼容标准 LLM API</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+                <!-- 报告结果显示区域 - 放在模块C底部 -->
+                <div id="report-result-area" style="display: none; margin-top: 15px; max-height: 500px; overflow-y: auto; border: 2px solid #4a9fd8; background: #fff;"></div>
             </div>
 
             <!-- SECTION 4: STOCK REVIEW -->
@@ -933,11 +956,29 @@
                         const keywordEl = document.getElementById('keyword');
                         const deleteKeywordsEl = document.getElementById('delete_keywords');
                         
-                        if (startDateEl) startDateEl.value = startDate.split(' ')[0]; 
-                        if (endDateEl) endDateEl.value = endDate.split(' ')[0];
+                        // datetime-local 格式: YYYY-MM-DDTHH:MM
+                        if (startDateEl && startDate) {
+                            // 如果只有日期部分，补充时间
+                            if (!startDate.includes('T') && !startDate.includes(' ')) {
+                                startDateEl.value = startDate + 'T00:00';
+                            } else {
+                                startDateEl.value = startDate.replace(' ', 'T').slice(0, 16);
+                            }
+                        }
+                        if (endDateEl && endDate) {
+                            if (!endDate.includes('T') && !endDate.includes(' ')) {
+                                endDateEl.value = endDate + 'T23:59';
+                            } else {
+                                endDateEl.value = endDate.replace(' ', 'T').slice(0, 16);
+                            }
+                        }
                         if (chatNameEl) chatNameEl.value = config.default_chat_name || '';
                         if (keywordEl) keywordEl.value = config.default_keyword || '';
                         if (deleteKeywordsEl) deleteKeywordsEl.value = config.delete_keywords || '';
+
+                        // 加载排除对象
+                        const excludeContactsEl = document.getElementById('exclude_contacts');
+                        if (excludeContactsEl) excludeContactsEl.value = config.exclude_contacts || '';
 
                         // 加载LLM配置
                         const llmApiBase = document.getElementById('llm_api_base');
@@ -1045,7 +1086,8 @@
                 default_end_date: document.getElementById('end_date').value,
                 default_chat_name: document.getElementById('chat_name').value,
                 default_keyword: document.getElementById('keyword').value,
-                delete_keywords: document.getElementById('delete_keywords').value
+                delete_keywords: document.getElementById('delete_keywords').value,
+                exclude_contacts: document.getElementById('exclude_contacts').value
             };
 
             fetch('/api/config', {
@@ -1623,8 +1665,10 @@
                 return;
             }
 
-            const limited = currentResults; // 不做数量限制
-            addSystemMessage(`开始逐条作答，条数：${limited.length}`);
+            // 获取并发数配置
+            const concurrency = parseInt(document.getElementById('llm_concurrency')?.value) || 3;
+            const limited = currentResults;
+            addSystemMessage(`开始并发逐条作答，条数：${limited.length}，并发数：${concurrency}`);
 
             isStreaming = true;
             const sendBtn = document.getElementById('send-btn');
@@ -1634,75 +1678,107 @@
             if (eachBtn) eachBtn.disabled = true;
             if (allBtn) allBtn.disabled = true;
 
+            // 用于存储按原始顺序排列的结果
+            const resultsMap = new Map();
+            let displayedCount = 0;
+
             try {
-                for (let i = 0; i < limited.length; i++) {
-                    const msg = limited[i];
-                    const userText = `[记录 #${i + 1}] ${msg.time} | ${msg.chat_name} | ${msg.sender}\n${msg.content}\n\n提示词：${prompt}`;
-                    addMessageBubble('user', userText);
-                    chatHistory.push({ role: 'user', content: userText });
+                // 调用后端并发批量接口
+                const response = await fetch('/api/llm/batch/stream', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        messages: limited,
+                        prompt: prompt,
+                        concurrency: concurrency,
+                        api_base: apiBase,
+                        model: model,
+                        api_key: apiKey,
+                        temperature: parseFloat(document.getElementById('llm_temperature').value) || 0.7,
+                        max_tokens: parseInt(document.getElementById('llm_max_tokens').value) || 2000
+                    })
+                });
 
-                    addTypingIndicator();
-                    const response = await fetch('/api/llm/chat/stream', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            message: prompt,
-                            context: `时间:${msg.time}\n对象:${msg.chat_name}\n发送者:${msg.sender}\n内容:${msg.content}`,
-                            history: [],
-                            api_base: apiBase,
-                            model: model,
-                            api_key: apiKey,
-                            temperature: parseFloat(document.getElementById('llm_temperature').value) || 0.7,
-                            max_tokens: parseInt(document.getElementById('llm_max_tokens').value) || 2000
-                        })
-                    });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
 
-                    removeTypingIndicator();
-                    if (!response.ok) {
-                        addMessageBubble('assistant', `[X] 记录 #${i + 1} 请求失败: HTTP ${response.status}`);
-                        continue;
-                    }
+                addTypingIndicator();
 
-                    const assistantBubble = addMessageBubble('assistant', '');
-                    const contentDiv = assistantBubble.querySelector('.bubble-content');
-                    let fullResponse = '';
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        const chunk = decoder.decode(value);
-                        const lines = chunk.split('\n');
-                        for (const line of lines) {
-                            if (line.startsWith('data: ')) {
-                                try {
-                                    const data = JSON.parse(line.slice(6));
-                                    if (data.content) {
-                                        fullResponse += data.content;
-                                        contentDiv.innerHTML = formatMessage(fullResponse);
-                                        document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
-                                    } else if (data.error) {
-                                        throw new Error(data.error);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+
+                                if (data.type === 'start') {
+                                    addSystemMessage(`正在处理 ${data.total} 条消息，并发数: ${data.concurrency}`);
+                                }
+                                else if (data.type === 'result') {
+                                    // 存储结果
+                                    resultsMap.set(data.idx, data.data);
+
+                                    // 按顺序显示已完成的结果
+                                    while (resultsMap.has(displayedCount)) {
+                                        const result = resultsMap.get(displayedCount);
+                                        removeTypingIndicator();
+
+                                        const msg = limited[displayedCount];
+                                        const userText = `[记录 #${displayedCount + 1}] ${msg.time} | ${msg.chat_name} | ${msg.sender}\n${msg.content}\n\n提示词：${prompt}`;
+                                        addMessageBubble('user', userText);
+                                        chatHistory.push({ role: 'user', content: userText });
+
+                                        if (result.error) {
+                                            addMessageBubble('assistant', `[X] 处理失败: ${result.error}`);
+                                        } else {
+                                            const responseText = result.response || '';
+                                            if (responseText.length > 400) {
+                                                const bubble = addMessageBubble('assistant', '');
+                                                bubble.querySelector('.bubble-content').innerHTML = renderCollapsibleText(responseText, 400);
+                                            } else {
+                                                addMessageBubble('assistant', responseText);
+                                            }
+                                            chatHistory.push({ role: 'assistant', content: responseText });
+                                        }
+
+                                        resultsMap.delete(displayedCount);
+                                        displayedCount++;
+
+                                        if (displayedCount < limited.length) {
+                                            addTypingIndicator();
+                                        }
                                     }
-                                } catch (e) {}
+
+                                    // 更新进度
+                                    addSystemMessage(`进度: ${data.completed}/${data.total}`);
+                                }
+                                else if (data.type === 'error') {
+                                    resultsMap.set(data.idx, { error: data.error });
+                                }
+                                else if (data.type === 'done') {
+                                    removeTypingIndicator();
+                                    addSystemMessage(`并发逐条作答完成，共处理 ${data.total} 条`);
+                                }
+                            } catch (e) {
+                                console.error('解析SSE数据失败:', e);
                             }
                         }
                     }
-                    if (fullResponse) {
-                        // 长内容折叠
-                        if (fullResponse.length > 400) {
-                            contentDiv.innerHTML = renderCollapsibleText(fullResponse, 400);
-                        } else {
-                            contentDiv.innerHTML = formatMessage(fullResponse);
-                        }
-                        chatHistory.push({ role: 'assistant', content: fullResponse });
-                    }
                 }
-                addSystemMessage('逐条作答完成');
+
                 updateExportChatBtn();
             } catch (err) {
                 removeTypingIndicator();
-                addMessageBubble('assistant', `[X] 逐条作答错误: ${err.message}`);
+                addMessageBubble('assistant', `[X] 并发逐条作答错误: ${err.message}`);
             } finally {
                 isStreaming = false;
                 if (sendBtn) sendBtn.disabled = false;
@@ -1820,6 +1896,242 @@
                 if (sendBtn) sendBtn.disabled = false;
                 if (eachBtn) eachBtn.disabled = false;
                 if (allBtn) allBtn.disabled = false;
+            }
+        }
+
+        async function generateStockReport() {
+            if (isStreaming) return;
+            if (!currentResults || currentResults.length === 0) {
+                alert('请先在模块B完成聊天记录搜索');
+                return;
+            }
+
+            const apiBase = document.getElementById('llm_api_base').value;
+            const apiKey = document.getElementById('llm_api_key').value;
+            const model = document.getElementById('llm_model').value;
+            if (!apiBase || !apiKey || !model) {
+                alert('请先配置AI接口（API Base、API Key、Model）');
+                return;
+            }
+
+            // 从输入框获取提示词
+            const userPrompt = document.getElementById('report-prompt').value.trim();
+            if (!userPrompt) {
+                alert('请输入报告提示词');
+                return;
+            }
+
+            // 构造内部提示词（用户无需知道格式细节）
+            const reportPrompt = userPrompt + '\n\n请严格按以下格式回复：如果是股票推荐，回复"推荐|股票名称|推荐理由"；如果不是股票推荐，只回复"忽略"。';
+
+            const concurrency = parseInt(document.getElementById('llm_concurrency')?.value) || 5;
+            const total = currentResults.length;
+
+            isStreaming = true;
+            const reportBtn = document.getElementById('btn-stock-report');
+            if (reportBtn) reportBtn.disabled = true;
+
+            const recommendations = [];
+            let processedCount = 0;
+            let filteredCount = 0;
+
+            // 显示进度区域
+            const resultArea = document.getElementById('report-result-area');
+            resultArea.style.display = 'block';
+            resultArea.innerHTML = `
+                <div style="font-family: 'Courier New', monospace; padding: 15px;">
+                    <div style="color: #4a9fd8; font-weight: bold; margin-bottom: 10px;">[生成股票推荐报告]</div>
+                    <div style="background: #e8f4f8; border: 1px solid #ddd; height: 20px; position: relative; margin-bottom: 8px;">
+                        <div id="report-progress-bar" style="background: #4a9fd8; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; color: #666;">
+                        <span>进度: <span id="report-progress">0</span>/${total}</span>
+                        <span id="report-percent">0%</span>
+                    </div>
+                </div>`;
+
+            try {
+                const response = await fetch('/api/llm/batch/stream', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        messages: currentResults,
+                        prompt: reportPrompt,
+                        concurrency: concurrency,
+                        api_base: apiBase,
+                        model: model,
+                        api_key: apiKey,
+                        temperature: 0.1,
+                        max_tokens: 200
+                    })
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        try {
+                            const data = JSON.parse(line.slice(6));
+
+                            if (data.type === 'result' && data.data) {
+                                processedCount++;
+                                const percent = Math.round((processedCount / total) * 100);
+                                const progressEl = document.getElementById('report-progress');
+                                const barEl = document.getElementById('report-progress-bar');
+                                const percentEl = document.getElementById('report-percent');
+                                if (progressEl) progressEl.textContent = processedCount;
+                                if (barEl) barEl.style.width = percent + '%';
+                                if (percentEl) percentEl.textContent = percent + '%';
+
+                                // data.data 是一个对象，AI响应在 data.data.response 中
+                                const msgData = data.data;
+                                const result = (msgData.response || '').trim();
+
+                                if (!result || msgData.error) {
+                                    filteredCount++;
+                                    continue;
+                                }
+
+                                // 灵活解析：如果包含"忽略"等关键词则过滤
+                                const ignoreKeywords = ['忽略', '不是股票', '不涉及', '无推荐', '非股票', '不是推荐', '没有推荐', '不推荐'];
+                                const isIgnored = ignoreKeywords.some(kw => result.includes(kw)) || result.length < 5;
+
+                                if (!isIgnored) {
+                                    let stock = '未知';
+                                    let reason = result;
+
+                                    // 尝试解析"推荐|股票|理由"格式
+                                    if (result.includes('|')) {
+                                        const parts = result.split('|');
+                                        stock = parts[1]?.trim() || parts[0]?.trim() || '未知';
+                                        reason = parts[2]?.trim() || parts.slice(1).join(' ') || '-';
+                                    } else {
+                                        // 尝试从结果中提取股票名称
+                                        const stockMatch = result.match(/股票[名称：:]*[：:\s]*([^\s，,。、]+)/) ||
+                                                          result.match(/推荐[：:\s]*([^\s，,。、]+)/) ||
+                                                          result.match(/([A-Z]{1,5}|[\u4e00-\u9fa5]{2,6}(?:股份|集团|科技|医药|银行)?)/);
+                                        if (stockMatch) stock = stockMatch[1].trim();
+                                        reason = result;
+                                    }
+
+                                    recommendations.push({
+                                        time: msgData.time || '',
+                                        sender: msgData.sender || '',
+                                        group: msgData.chat_name || '',
+                                        stock: stock,
+                                        reason: reason.substring(0, 150),
+                                        original: msgData.content || ''
+                                    });
+                                } else {
+                                    filteredCount++;
+                                }
+                            }
+                        } catch (e) { console.log('Parse error:', e); }
+                    }
+                }
+
+                // 生成表格报告
+                recommendations.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+                // 存储报告数据供下载使用
+                window.lastReportData = {
+                    recommendations: recommendations,
+                    summary: {
+                        total: processedCount,
+                        valid: recommendations.length,
+                        filtered: filteredCount
+                    }
+                };
+
+                let html = `<div style="font-family: 'Courier New', monospace; font-size: 13px; padding: 15px;">`;
+                html += `<div style="margin-bottom: 10px; padding: 10px; background: #f5f5f5; border-left: 3px solid #4a9fd8; display: flex; justify-content: space-between; align-items: center;">`;
+                html += `<div><b>股票推荐报告</b><br>`;
+                html += `<span style="font-size: 12px;">处理: ${processedCount} | 有效: ${recommendations.length} | 过滤: ${filteredCount}</span></div>`;
+                html += `<button onclick="downloadReportPDF()" style="padding: 5px 10px; background: #4a9fd8; color: white; border: none; cursor: pointer; font-size: 12px;">[下载PDF]</button>`;
+                html += `</div>`;
+
+                if (recommendations.length === 0) {
+                    html += `<div style="color: #999; text-align: center; padding: 30px;">未发现有效的股票推荐内容</div>`;
+                } else {
+                    html += `<table style="width: 100%; border-collapse: collapse; font-size: 12px;">`;
+                    html += `<thead><tr style="background: #4a9fd8; color: white;">`;
+                    html += `<th style="padding: 8px; text-align: left; border: 1px solid #ddd;">时间</th>`;
+                    html += `<th style="padding: 8px; text-align: left; border: 1px solid #ddd;">股票</th>`;
+                    html += `<th style="padding: 8px; text-align: left; border: 1px solid #ddd;">推荐人</th>`;
+                    html += `<th style="padding: 8px; text-align: left; border: 1px solid #ddd;">来源</th>`;
+                    html += `<th style="padding: 8px; text-align: left; border: 1px solid #ddd;">AI分析</th>`;
+                    html += `</tr></thead><tbody>`;
+
+                    recommendations.forEach((rec, idx) => {
+                        const bgColor = idx % 2 === 0 ? '#fff' : '#f9f9f9';
+                        html += `<tr style="background: ${bgColor};">`;
+                        html += `<td style="padding: 6px 8px; border: 1px solid #ddd; white-space: nowrap;">${rec.time}</td>`;
+                        html += `<td style="padding: 6px 8px; border: 1px solid #ddd; font-weight: bold; color: #c00;">${rec.stock}</td>`;
+                        html += `<td style="padding: 6px 8px; border: 1px solid #ddd;">${rec.sender}</td>`;
+                        html += `<td style="padding: 6px 8px; border: 1px solid #ddd;">${rec.group}</td>`;
+                        html += `<td style="padding: 6px 8px; border: 1px solid #ddd;">${rec.reason}</td>`;
+                        html += `</tr>`;
+                    });
+                    html += `</tbody></table>`;
+                }
+                html += `</div>`;
+
+                resultArea.innerHTML = html;
+
+            } catch (err) {
+                resultArea.innerHTML = `<div style="padding: 20px; color: #c00; font-family: monospace;">[X] 报告生成错误: ${err.message}</div>`;
+            } finally {
+                isStreaming = false;
+                if (reportBtn) reportBtn.disabled = false;
+            }
+        }
+
+        async function downloadReportPDF() {
+            if (!window.lastReportData || !window.lastReportData.recommendations.length) {
+                alert('没有报告数据可下载');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/report/pdf', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(window.lastReportData)
+                });
+
+                // 检查响应类型
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('非JSON响应:', text.substring(0, 200));
+                    alert('服务器返回错误，请检查后端日志');
+                    return;
+                }
+
+                const result = await response.json();
+                if (result.success) {
+                    // 直接打开下载链接
+                    window.location.href = `/api/download/${result.filename}`;
+
+                    if (result.note) {
+                        setTimeout(() => alert(result.note), 500);
+                    }
+                } else {
+                    alert('导出失败: ' + result.message);
+                }
+            } catch (err) {
+                console.error('下载错误:', err);
+                alert('下载失败: ' + err.message);
             }
         }
 

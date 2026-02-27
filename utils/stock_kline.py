@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 股票K线复盘模块
-使用 baostock 获取A股历史数据，pyecharts 生成带聊天标注的K线图
+使用 akshare 获取A股、港股、美股、北交所历史数据，pyecharts 生成带聊天标注的K线图
 """
 
-import baostock as bs
+import akshare as ak
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Optional
@@ -15,221 +15,458 @@ from pyecharts.commons.utils import JsCode
 
 
 class StockKlineReview:
-    """股票K线复盘类"""
-    
+    """股票K线复盘类 - 使用 akshare 支持多市场"""
+
+    # 市场类型
+    MARKET_SH = 'sh'    # 上海A股
+    MARKET_SZ = 'sz'    # 深圳A股
+    MARKET_BJ = 'bj'    # 北交所
+    MARKET_HK = 'hk'    # 港股
+    MARKET_US = 'us'    # 美股
+
     def __init__(self):
-        self._logged_in = False
-        
-    def _ensure_login(self):
-        """确保已登录 baostock"""
-        if not self._logged_in:
-            lg = bs.login()
-            print(f"[baostock] 登录结果: {lg.error_code} - {lg.error_msg}")
-            if lg.error_code != '0':
-                raise Exception(f"baostock登录失败: {lg.error_msg}")
-            self._logged_in = True
-    
-    def _force_relogin(self):
-        """强制重新登录"""
+        # 缓存股票名称映射
+        self._stock_name_cache: Dict[str, str] = {}
+        self._a_stock_names: Optional[Dict[str, str]] = None
+
+    def _detect_market(self, code: str) -> str:
+        """
+        自动识别股票市场
+
+        Args:
+            code: 股票代码
+
+        Returns:
+            市场标识: 'sh', 'sz', 'bj', 'hk', 'us'
+        """
+        code = code.strip().upper()
+
+        # 移除可能的市场前缀
+        if code.startswith('SH.') or code.startswith('SH'):
+            code = code.replace('SH.', '').replace('SH', '')
+            return self.MARKET_SH
+        if code.startswith('SZ.') or code.startswith('SZ'):
+            code = code.replace('SZ.', '').replace('SZ', '')
+            return self.MARKET_SZ
+        if code.startswith('BJ.') or code.startswith('BJ'):
+            return self.MARKET_BJ
+        if code.startswith('HK.') or code.startswith('HK'):
+            return self.MARKET_HK
+
+        # 纯字母 -> 美股
+        if code.isalpha():
+            return self.MARKET_US
+
+        # 纯数字代码识别
+        if code.isdigit():
+            # 先判断港股：5位数字
+            if len(code) == 5:
+                return self.MARKET_HK
+            # 6位数字的A股/北交所
+            if code.startswith('6'):
+                return self.MARKET_SH
+            elif code.startswith('0') or code.startswith('3'):
+                return self.MARKET_SZ
+            elif code.startswith('8') or code.startswith('4') or code.startswith('9'):
+                # 北交所: 8开头(老三板)、4开头(老三板)、9开头(北交所新股)
+                return self.MARKET_BJ
+
+        # 默认尝试A股
+        return self.MARKET_SH
+
+    def _normalize_code(self, code: str) -> str:
+        """
+        标准化股票代码（去除市场前缀）
+        """
+        code = code.strip().upper()
+        # 移除常见前缀
+        for prefix in ['SH.', 'SZ.', 'BJ.', 'HK.', 'SH', 'SZ', 'BJ', 'HK']:
+            if code.startswith(prefix):
+                code = code[len(prefix):]
+                break
+        return code
+
+    def _load_a_stock_names(self) -> Dict[str, str]:
+        """加载A股代码名称映射"""
+        if self._a_stock_names is not None:
+            return self._a_stock_names
+
         try:
-            bs.logout()
-        except:
-            pass
-        self._logged_in = False
-        lg = bs.login()
-        print(f"[baostock] 重新登录: {lg.error_code} - {lg.error_msg}")
-        if lg.error_code != '0':
-            raise Exception(f"baostock登录失败: {lg.error_msg}")
-        self._logged_in = True
-    
-    def _logout(self):
-        """登出 baostock"""
-        if self._logged_in:
-            try:
-                bs.logout()
-            except:
-                pass
-            self._logged_in = False
-    
+            df = ak.stock_info_a_code_name()
+            self._a_stock_names = dict(zip(df['code'].astype(str), df['name']))
+            print(f"[akshare] 加载A股名称映射: {len(self._a_stock_names)} 条")
+            return self._a_stock_names
+        except Exception as e:
+            print(f"[akshare] 加载A股名称失败: {e}")
+            self._a_stock_names = {}
+            return self._a_stock_names
+
     def get_stock_info(self, code: str) -> Dict:
         """
         获取股票基本信息
-        
+
         Args:
-            code: 股票代码，支持格式: 000001, sh.000001, 600000, sz.000001
-            
+            code: 股票代码，支持格式: 000001, sh000001, 600000, 00700, AAPL
+
         Returns:
-            {'code': 'sh.600000', 'name': '浦发银行', 'market': 'sh'}
+            {'code': '600000', 'name': '浦发银行', 'market': 'sh'}
         """
-        # 强制重新登录确保会话有效
-        self._force_relogin()
-        
-        # 标准化股票代码
+        market = self._detect_market(code)
         normalized_code = self._normalize_code(code)
-        market = 'sh' if normalized_code.startswith('sh') else 'sz'
         stock_name = ''
-        
-        # 方法1: 从全部股票列表中查找名称
-        try:
-            print(f"[股票信息] 查询股票: {normalized_code}")
-            rs = bs.query_all_stock(day=None)  # 获取最新交易日的股票列表
-            if rs.error_code == '0':
-                while rs.next():
-                    row = rs.get_row_data()
-                    if len(row) >= 2 and row[0] == normalized_code:
-                        stock_name = row[2] if len(row) > 2 else row[1]
-                        print(f"[股票信息] 找到股票名称: {stock_name}")
-                        break
-        except Exception as e:
-            print(f"[股票信息] 方法1(query_all_stock)失败: {e}")
-        
-        # 方法2: 尝试 query_stock_basic
-        if not stock_name:
+
+        print(f"[股票信息] 查询: {code} -> 市场: {market}, 代码: {normalized_code}")
+
+        # 先检查缓存
+        cache_key = f"{market}_{normalized_code}"
+        if cache_key in self._stock_name_cache:
+            stock_name = self._stock_name_cache[cache_key]
+            print(f"[股票信息] 缓存命中: {stock_name}")
+        else:
             try:
-                rs = bs.query_stock_basic(code=normalized_code)
-                if rs.error_code == '0':
-                    data_list = []
-                    while rs.next():
-                        data_list.append(rs.get_row_data())
-                    
-                    if data_list:
-                        fields = rs.fields
-                        row = data_list[0]
-                        info = dict(zip(fields, row))
-                        stock_name = info.get('code_name', '')
-                        if stock_name:
-                            print(f"[股票信息] query_stock_basic找到: {stock_name}")
+                if market in [self.MARKET_SH, self.MARKET_SZ]:
+                    # A股：从名称映射中查找
+                    names = self._load_a_stock_names()
+                    stock_name = names.get(normalized_code, '')
+                    if not stock_name:
+                        # 尝试从实时数据获取
+                        df = ak.stock_zh_a_spot_em()
+                        match = df[df['代码'] == normalized_code]
+                        if not match.empty:
+                            stock_name = match.iloc[0]['名称']
+
+                elif market == self.MARKET_BJ:
+                    # 北交所 - 优先使用 stock_info_bj_name_code
+                    try:
+                        df = ak.stock_info_bj_name_code()
+                        # 第一列是代码，第二列是名称
+                        code_col = df.columns[0]
+                        name_col = df.columns[1]
+                        match = df[df[code_col].astype(str) == normalized_code]
+                        if not match.empty:
+                            stock_name = match.iloc[0][name_col]
+                    except Exception as e:
+                        print(f"[股票信息] 北交所名称查询失败: {e}")
+
+                elif market == self.MARKET_HK:
+                    # 港股 - 优先新浪接口
+                    code_padded = normalized_code.zfill(5)
+                    try:
+                        import requests
+                        url = f'https://hq.sinajs.cn/list=hk{code_padded}'
+                        headers = {'Referer': 'https://finance.sina.com.cn'}
+                        r = requests.get(url, headers=headers, timeout=5)
+                        if r.status_code == 200 and 'hq_str' in r.text:
+                            # 解析: var hq_str_hk00700="TENCENT,腾讯控股,..."
+                            parts = r.text.split('"')[1].split(',')
+                            if len(parts) >= 2 and parts[1]:
+                                stock_name = parts[1]
+                                print(f"[股票信息] 港股新浪获取成功: {stock_name}")
+                    except Exception as e:
+                        print(f"[股票信息] 港股新浪查询失败: {e}")
+
+                elif market == self.MARKET_US:
+                    # 美股 - 优先新浪接口
+                    try:
+                        import requests
+                        url = f'https://hq.sinajs.cn/list=gb_{normalized_code.lower()}'
+                        headers = {'Referer': 'https://finance.sina.com.cn'}
+                        r = requests.get(url, headers=headers, timeout=5)
+                        if r.status_code == 200 and 'hq_str' in r.text:
+                            # 解析: var hq_str_gb_aapl="苹果,..."
+                            parts = r.text.split('"')[1].split(',')
+                            if len(parts) >= 1 and parts[0]:
+                                stock_name = parts[0]
+                                print(f"[股票信息] 美股新浪获取成功: {stock_name}")
+                    except Exception as e:
+                        print(f"[股票信息] 美股新浪查询失败: {e}")
+
+                if stock_name:
+                    self._stock_name_cache[cache_key] = stock_name
+                    print(f"[股票信息] 找到: {stock_name}")
+
             except Exception as e:
-                print(f"[股票信息] 方法2(query_stock_basic)失败: {e}")
-        
-        # 方法3: 验证股票是否存在（通过K线数据）
+                print(f"[股票信息] 查询异常: {e}")
+
+        # 如果还是没有名称，使用代码
         if not stock_name:
-            try:
-                from datetime import datetime, timedelta
-                today = datetime.now()
-                start = (today - timedelta(days=10)).strftime('%Y-%m-%d')
-                end = today.strftime('%Y-%m-%d')
-                
-                rs = bs.query_history_k_data_plus(
-                    normalized_code,
-                    "date,code",
-                    start_date=start,
-                    end_date=end,
-                    frequency="d"
-                )
-                
-                if rs.error_code == '0':
-                    has_data = False
-                    while rs.next():
-                        has_data = True
-                        break
-                    
-                    if has_data:
-                        # 股票存在但无法获取名称，使用代码
-                        code_only = normalized_code.split('.')[-1]
-                        stock_name = code_only
-                        print(f"[股票信息] K线数据存在，使用代码作为名称: {stock_name}")
-            except Exception as e:
-                print(f"[股票信息] 方法3(K线验证)失败: {e}")
-        
-        # 如果还是没有名称，使用输入的代码
-        if not stock_name:
-            stock_name = code
-            print(f"[股票信息] 使用原始输入作为名称: {stock_name}")
-        
+            stock_name = normalized_code
+            print(f"[股票信息] 未找到名称，使用代码: {stock_name}")
+
         return {
             'code': normalized_code,
             'name': stock_name,
-            'market': market,
-            'industry': '',
-            'ipoDate': ''
+            'market': market
         }
-    
-    def _normalize_code(self, code: str) -> str:
-        """
-        标准化股票代码为 baostock 格式
-        
-        Args:
-            code: 输入代码，如 000001, sh000001, 600000 等
-            
-        Returns:
-            标准格式如 sh.600000, sz.000001
-        """
-        code = code.strip().lower()
-        
-        # 如果已经是标准格式
-        if '.' in code and (code.startswith('sh.') or code.startswith('sz.')):
-            return code
-        
-        # 移除可能的前缀
-        if code.startswith('sh') or code.startswith('sz'):
-            market = code[:2]
-            code_num = code[2:]
-            if code_num.startswith('.'):
-                code_num = code_num[1:]
-            return f"{market}.{code_num}"
-        
-        # 根据代码规则判断市场
-        # 6开头为上海，0/3开头为深圳
-        if code.startswith('6'):
-            return f"sh.{code}"
-        elif code.startswith('0') or code.startswith('3'):
-            return f"sz.{code}"
-        else:
-            # 默认尝试上海
-            return f"sh.{code}"
-    
+
+    def _get_a_stock_kline(self, code: str, market: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取A股K线 - 优先新浪(stock_zh_a_daily)，失败用东方财富"""
+        df = None
+        # 构造带市场前缀的代码 (新浪接口需要)
+        prefix = 'sh' if market == self.MARKET_SH else 'sz'
+        symbol_with_prefix = f"{prefix}{code}"
+
+        # 1. 尝试新浪数据源 (stock_zh_a_daily)
+        try:
+            print(f"[K线] A股尝试新浪数据源: {symbol_with_prefix}")
+            df = ak.stock_zh_a_daily(
+                symbol=symbol_with_prefix,
+                start_date=start_date.replace('-', ''),
+                end_date=end_date.replace('-', ''),
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                print(f"[K线] 新浪数据源成功: {len(df)} 条")
+                return df
+        except Exception as e:
+            print(f"[K线] 新浪数据源失败: {e}")
+
+        # 2. 尝试东方财富数据源
+        try:
+            print(f"[K线] A股尝试东方财富数据源: {code}")
+            df = ak.stock_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=start_date.replace('-', ''),
+                end_date=end_date.replace('-', ''),
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                print(f"[K线] 东方财富数据源成功: {len(df)} 条")
+                return df
+        except Exception as e:
+            print(f"[K线] 东方财富数据源失败: {e}")
+
+        return df
+
+    def _get_bj_stock_kline(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取北交所K线 - 优先新浪(stock_zh_a_daily)，失败用东方财富"""
+        df = None
+        # 构造带市场前缀的代码 (新浪接口需要 bj 前缀)
+        symbol_with_prefix = f"bj{code}"
+
+        # 1. 尝试新浪数据源 (stock_zh_a_daily 支持北交所)
+        try:
+            print(f"[K线] 北交所尝试新浪数据源: {symbol_with_prefix}")
+            df = ak.stock_zh_a_daily(
+                symbol=symbol_with_prefix,
+                start_date=start_date.replace('-', ''),
+                end_date=end_date.replace('-', ''),
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                print(f"[K线] 新浪数据源成功: {len(df)} 条")
+                return df
+        except Exception as e:
+            print(f"[K线] 新浪北交所数据源失败: {e}")
+
+        # 2. 尝试东方财富数据源
+        try:
+            print(f"[K线] 北交所尝试东方财富数据源: {code}")
+            df = ak.stock_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=start_date.replace('-', ''),
+                end_date=end_date.replace('-', ''),
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                print(f"[K线] 东方财富数据源成功: {len(df)} 条")
+                return df
+        except Exception as e:
+            print(f"[K线] 东方财富北交所数据源失败: {e}")
+
+        return df
+
+    def _get_hk_stock_kline(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取港股K线 - 优先新浪，失败用东方财富"""
+        df = None
+        # 1. 尝试新浪数据源
+        try:
+            print(f"[K线] 港股尝试新浪数据源: {code}")
+            df = ak.stock_hk_daily(
+                symbol=code,
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                # 新浪数据需要过滤日期范围
+                df['date'] = pd.to_datetime(df['date'])
+                start_dt = pd.to_datetime(start_date)
+                end_dt = pd.to_datetime(end_date)
+                df = df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
+                df['date'] = df['date'].dt.strftime('%Y-%m-%d')
+                if not df.empty:
+                    print(f"[K线] 新浪数据源成功: {len(df)} 条")
+                    return df
+        except Exception as e:
+            print(f"[K线] 新浪港股数据源失败: {e}")
+
+        # 2. 尝试东方财富数据源
+        try:
+            print(f"[K线] 港股尝试东方财富数据源: {code}")
+            df = ak.stock_hk_hist(
+                symbol=code,
+                period="daily",
+                start_date=start_date.replace('-', ''),
+                end_date=end_date.replace('-', ''),
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                print(f"[K线] 东方财富数据源成功: {len(df)} 条")
+                return df
+        except Exception as e:
+            print(f"[K线] 东方财富港股数据源失败: {e}")
+
+        return df
+
+    def _get_us_stock_kline(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取美股K线 - 优先新浪，失败用东方财富"""
+        df = None
+        # 1. 尝试新浪数据源
+        try:
+            print(f"[K线] 美股尝试新浪数据源: {code}")
+            df = ak.stock_us_daily(
+                symbol=code,
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                # 新浪数据需要过滤日期范围
+                df['date'] = pd.to_datetime(df['date'])
+                start_dt = pd.to_datetime(start_date)
+                end_dt = pd.to_datetime(end_date)
+                df = df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
+                df['date'] = df['date'].dt.strftime('%Y-%m-%d')
+                if not df.empty:
+                    print(f"[K线] 新浪数据源成功: {len(df)} 条")
+                    return df
+        except Exception as e:
+            print(f"[K线] 新浪美股数据源失败: {e}")
+
+        # 2. 尝试东方财富数据源
+        try:
+            print(f"[K线] 美股尝试东方财富数据源: {code}")
+            df = ak.stock_us_hist(
+                symbol=code,
+                period="daily",
+                start_date=start_date.replace('-', ''),
+                end_date=end_date.replace('-', ''),
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                print(f"[K线] 东方财富数据源成功: {len(df)} 条")
+                return df
+        except Exception as e:
+            print(f"[K线] 东方财富美股数据源失败: {e}")
+
+        return df
+
     def get_kline_data(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         获取股票日K线数据
-        
+
         Args:
             code: 股票代码
             start_date: 开始日期 YYYY-MM-DD
             end_date: 结束日期 YYYY-MM-DD
-            
+
         Returns:
-            DataFrame with columns: date, open, high, low, close, volume, amount, turn
+            DataFrame with columns: date, open, high, low, close, volume, amount, pctChg
         """
-        # 确保登录（不重复登录，使用已有会话）
-        self._ensure_login()
-        
+        import time
+
+        market = self._detect_market(code)
         normalized_code = self._normalize_code(code)
-        print(f"[K线数据] 查询: {normalized_code}, 日期: {start_date} ~ {end_date}")
-        
-        rs = bs.query_history_k_data_plus(
-            normalized_code,
-            "date,open,high,low,close,volume,amount,turn,pctChg",
-            start_date=start_date,
-            end_date=end_date,
-            frequency="d",
-            adjustflag="2"  # 前复权
-        )
-        
-        print(f"[K线数据] 返回码: {rs.error_code}, 消息: {rs.error_msg}")
-        
-        if rs.error_code != '0':
-            raise Exception(f"获取K线数据失败: {rs.error_msg}")
-        
-        data_list = []
-        while rs.next():
-            data_list.append(rs.get_row_data())
-        
-        print(f"[K线数据] 获取到 {len(data_list)} 条数据")
-        
-        if not data_list:
-            raise Exception(f"未获取到K线数据，请检查日期范围(代码:{normalized_code})")
-        
-        df = pd.DataFrame(data_list, columns=rs.fields)
-        
+
+        print(f"[K线数据] 查询: {normalized_code}, 市场: {market}, 日期: {start_date} ~ {end_date}")
+
+        df = None
+        max_retries = 3
+        last_error = None
+
+        for retry in range(max_retries):
+            try:
+                if retry > 0:
+                    wait_time = retry * 2
+                    print(f"[K线数据] 第 {retry + 1} 次重试，等待 {wait_time} 秒...")
+                    time.sleep(wait_time)
+
+                if market in [self.MARKET_SH, self.MARKET_SZ]:
+                    # A股 - 优先新浪数据源
+                    df = self._get_a_stock_kline(normalized_code, market, start_date, end_date)
+
+                elif market == self.MARKET_BJ:
+                    # 北交所 - 优先新浪，失败用东方财富
+                    df = self._get_bj_stock_kline(normalized_code, start_date, end_date)
+
+                elif market == self.MARKET_HK:
+                    # 港股 - 优先新浪，失败用东方财富
+                    code_padded = normalized_code.zfill(5)
+                    df = self._get_hk_stock_kline(code_padded, start_date, end_date)
+
+                elif market == self.MARKET_US:
+                    # 美股 - 优先新浪，失败用东方财富
+                    df = self._get_us_stock_kline(normalized_code, start_date, end_date)
+
+                # 成功获取数据，跳出重试循环
+                if df is not None and not df.empty:
+                    break
+
+            except Exception as e:
+                last_error = e
+                print(f"[K线数据] 第 {retry + 1} 次尝试失败: {e}")
+                if retry == max_retries - 1:
+                    raise Exception(f"获取K线数据失败（重试{max_retries}次）: {str(last_error)}")
+
+        if df is None or df.empty:
+            raise Exception(f"未获取到K线数据 (代码:{normalized_code}, 市场:{market})")
+
+        print(f"[K线数据] 获取到 {len(df)} 条数据")
+
+        # 标准化列名
+        df = self._standardize_columns(df)
+
+        return df
+
+    def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """标准化DataFrame列名"""
+        # akshare 返回的列名可能不同，统一处理
+        column_mapping = {
+            '日期': 'date',
+            '开盘': 'open',
+            '收盘': 'close',
+            '最高': 'high',
+            '最低': 'low',
+            '成交量': 'volume',
+            '成交额': 'amount',
+            '涨跌幅': 'pctChg',
+            '涨跌额': 'change',
+            '换手率': 'turn',
+        }
+
+        df = df.rename(columns=column_mapping)
+
+        # 确保必要的列存在
+        required_cols = ['date', 'open', 'close', 'high', 'low', 'volume']
+        for col in required_cols:
+            if col not in df.columns:
+                # 尝试从原始列名查找
+                for orig, std in column_mapping.items():
+                    if std == col and orig in df.columns:
+                        df[col] = df[orig]
+                        break
+
         # 转换数据类型
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'turn', 'pctChg']
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pctChg', 'turn']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-        
+
+        # 确保日期格式
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+
         return df
-    
+
     def generate_kline_chart(
         self,
         kline_data: pd.DataFrame,
@@ -239,27 +476,27 @@ class StockKlineReview:
     ) -> str:
         """
         生成带聊天标注的K线图
-        
+
         Args:
             kline_data: K线数据 DataFrame
             messages: 聊天记录列表 [{'time': 'YYYY-MM-DD HH:MM:SS', 'content': '...', ...}]
             stock_name: 股票名称
             stock_code: 股票代码
-            
+
         Returns:
             HTML字符串
         """
         if kline_data.empty:
             return "<div style='text-align:center;padding:50px;color:#999;'>无K线数据</div>"
-        
+
         # 准备K线数据
         dates = kline_data['date'].tolist()
         kline_values = kline_data[['open', 'close', 'low', 'high']].values.tolist()
         volumes = kline_data['volume'].tolist()
-        
+
         # 按日期聚合聊天记录
         msg_by_date = self._aggregate_messages_by_date(messages)
-        
+
         # 准备标记点数据
         mark_points = []
         for date, msgs in msg_by_date.items():
@@ -283,13 +520,7 @@ class StockKlineReview:
                     'summary': summary,
                     'messages': msgs
                 })
-        
-        # 计算涨跌颜色
-        def get_item_style(idx):
-            if idx == 0:
-                return '#ec0000' if kline_values[idx][1] >= kline_values[idx][0] else '#00da3c'
-            return '#ec0000' if kline_values[idx][1] >= kline_values[idx - 1][1] else '#00da3c'
-        
+
         # 创建K线图
         kline = (
             Kline()
@@ -406,7 +637,7 @@ class StockKlineReview:
                 ),
             )
         )
-        
+
         # 创建成交量柱状图
         bar = (
             Bar()
@@ -448,7 +679,7 @@ class StockKlineReview:
                 legend_opts=opts.LegendOpts(is_show=False),
             )
         )
-        
+
         # 组合图表
         grid = (
             Grid(init_opts=opts.InitOpts(
@@ -475,60 +706,54 @@ class StockKlineReview:
                 ),
             )
         )
-        
+
         # 渲染为HTML
         html = grid.render_embed()
-        
+
         # 移除内嵌的 echarts 库引用（前端已加载CDN版本）
         import re
         html = re.sub(r'<script[^>]*src="[^"]*echarts[^"]*"[^>]*></script>', '', html)
-        
+
         # 添加聊天记录数据的JavaScript（供tooltip使用）
         if msg_by_date:
             msg_data_js = self._generate_message_data_js(msg_by_date, dates)
             # 将消息数据放在图表脚本之前
             html = msg_data_js + html
-        
+
         return html
-    
+
     def _aggregate_messages_by_date(self, messages: List[Dict]) -> Dict[str, List[Dict]]:
         """
         按日期聚合聊天记录（已去重）
-        
-        Args:
-            messages: 聊天记录列表
-            
-        Returns:
-            {date: [messages]}
         """
         msg_by_date = {}
         seen = set()
-        
+
         for msg in messages:
             time_str = msg.get('time', '')
             if not time_str:
                 continue
-            
+
             # 提取日期部分
             date = time_str.split(' ')[0]
-            
+
             # 去重: 同一日+聊天对象+发送者+内容
             dedup_key = f"{date}|{msg.get('chat_name', '')}|{msg.get('sender', '')}|{msg.get('content', '')}"
             if dedup_key in seen:
                 continue
             seen.add(dedup_key)
-            
+
             if date not in msg_by_date:
                 msg_by_date[date] = []
             msg_by_date[date].append(msg)
-        
+
         return msg_by_date
-    
+
     def _format_message_summary(self, messages: List[Dict], max_chars: int = 100) -> str:
         """格式化消息摘要"""
         if not messages:
             return ""
-        
+
         summaries = []
         for msg in messages[:3]:  # 最多显示3条
             sender = msg.get('sender', '未知')
@@ -536,17 +761,17 @@ class StockKlineReview:
             if len(msg.get('content', '')) > 50:
                 content += '...'
             summaries.append(f"[{sender}] {content}")
-        
+
         result = '\n'.join(summaries)
         if len(messages) > 3:
             result += f"\n... 还有 {len(messages) - 3} 条"
-        
+
         return result
-    
+
     def _generate_message_data_js(self, msg_by_date: Dict, dates: List[str]) -> str:
         """生成消息数据的JavaScript代码"""
         import json
-        
+
         # 转换为JSON安全格式
         safe_data = {}
         for date, msgs in msg_by_date.items():
@@ -560,17 +785,13 @@ class StockKlineReview:
                     }
                     for m in msgs
                 ]
-        
+
         js_code = f"""
         <script>
         window.KLINE_MESSAGES = {json.dumps(safe_data, ensure_ascii=False)};
         </script>
         """
         return js_code
-    
-    def __del__(self):
-        """析构时登出"""
-        self._logout()
 
 
 # 模块级便捷函数
@@ -605,5 +826,3 @@ def generate_kline_chart(
     return get_kline_reviewer().generate_kline_chart(
         kline_data, messages, stock_name, stock_code
     )
-
-

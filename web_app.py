@@ -195,7 +195,7 @@ def status():
     """获取服务器状态"""
     return jsonify({
         "status": "online",
-        "version": "2.0.0",
+        "version": "2.5.0",
         "output_directory": str(OUTPUT_BASE_DIR.absolute())
     })
 
@@ -296,6 +296,9 @@ def search():
         # 获取是否排除自己的消息
         exclude_self = data.get('exclude_self') == 'true' or data.get('exclude_self') == True
 
+        # 获取排除的聊天对象
+        exclude_contacts = data.get('exclude_contacts') or None
+
         # 获取股票市场筛选参数（支持多选）
         stock_markets = data.get('stock_markets') or []
         # 是否匹配数字代码（默认False，只匹配名称）
@@ -331,6 +334,17 @@ def search():
                 'type_name': get_message_type_name(int(row['消息类型'])),
                 'content': str(row['内容'])  # 显示完整内容
             })
+
+        # 排除特定聊天对象（同时匹配聊天对象和发言人）
+        if exclude_contacts:
+            exclude_list = [name.strip() for name in exclude_contacts.split(',') if name.strip()]
+            if exclude_list:
+                before_exclude = len(results_list)
+                results_list = [
+                    r for r in results_list
+                    if not any(ex in r['chat_name'] or ex in r['sender'] for ex in exclude_list)
+                ]
+                print(f"[排除对象] 排除: {exclude_list}, 排除前: {before_exclude}, 排除后: {len(results_list)}")
 
         # 股票市场筛选（如果有选择）
         original_count = len(results_list)
@@ -1089,6 +1103,123 @@ def test_llm_connection():
         })
 
 
+# ==================== 并发批量LLM处理API ====================
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+
+def process_single_message_llm(msg_data: dict, prompt: str, idx: int, llm_config: dict) -> dict:
+    """处理单条消息的LLM调用"""
+    try:
+        # 构建上下文
+        context = f"时间:{msg_data.get('time', '')}\n对象:{msg_data.get('chat_name', '')}\n发送者:{msg_data.get('sender', '')}\n内容:{msg_data.get('content', '')}"
+
+        # 创建LLM客户端
+        client = get_llm_client(
+            api_base=llm_config.get('api_base'),
+            model=llm_config.get('model'),
+            api_key=llm_config.get('api_key'),
+            temperature=llm_config.get('temperature', 0.7),
+            max_tokens=llm_config.get('max_tokens', 2000)
+        )
+
+        if not client:
+            return {'idx': idx, 'error': 'LLM客户端创建失败'}
+
+        # 调用LLM
+        messages = [{'role': 'user', 'content': prompt}]
+        response = client.chat(messages, context=context)
+
+        return {
+            'idx': idx,
+            'time': msg_data.get('time', ''),
+            'chat_name': msg_data.get('chat_name', ''),
+            'sender': msg_data.get('sender', ''),
+            'content': msg_data.get('content', ''),
+            'response': response
+        }
+    except Exception as e:
+        return {'idx': idx, 'error': str(e)}
+
+
+@app.route('/api/llm/batch/stream', methods=['POST'])
+def llm_batch_stream():
+    """并发批量处理消息，SSE流式返回"""
+    try:
+        data = request.json
+        messages = data.get('messages', [])
+        prompt = data.get('prompt', '')
+        concurrency = min(int(data.get('concurrency', 3)), 10)  # 默认3，最大10
+
+        if not messages:
+            return jsonify({'success': False, 'message': '消息列表为空'})
+
+        if not prompt:
+            return jsonify({'success': False, 'message': '提示词不能为空'})
+
+        # LLM配置
+        llm_config = {
+            'api_base': data.get('api_base', ''),
+            'model': data.get('model', ''),
+            'api_key': data.get('api_key', ''),
+            'temperature': float(data.get('temperature', 0.7)),
+            'max_tokens': int(data.get('max_tokens', 2000))
+        }
+
+        if not llm_config['api_base'] or not llm_config['api_key'] or not llm_config['model']:
+            return jsonify({'success': False, 'message': 'API配置不完整'})
+
+        def generate():
+            results_lock = threading.Lock()
+            completed_count = 0
+            total = len(messages)
+
+            # 发送开始信号
+            yield f"data: {json_module.dumps({'type': 'start', 'total': total, 'concurrency': concurrency}, ensure_ascii=False)}\n\n"
+
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                # 提交所有任务
+                futures = {
+                    executor.submit(process_single_message_llm, msg, prompt, idx, llm_config): idx
+                    for idx, msg in enumerate(messages)
+                }
+
+                # 按完成顺序处理结果
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    try:
+                        result = future.result(timeout=120)  # 2分钟超时
+                        with results_lock:
+                            completed_count += 1
+
+                        # SSE 格式返回每条结果
+                        yield f"data: {json_module.dumps({'type': 'result', 'idx': idx, 'completed': completed_count, 'total': total, 'data': result}, ensure_ascii=False)}\n\n"
+
+                    except Exception as e:
+                        with results_lock:
+                            completed_count += 1
+                        yield f"data: {json_module.dumps({'type': 'error', 'idx': idx, 'completed': completed_count, 'total': total, 'error': str(e)}, ensure_ascii=False)}\n\n"
+
+            # 发送完成信号
+            yield f"data: {json_module.dumps({'type': 'done', 'total': total}, ensure_ascii=False)}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'批量处理失败: {str(e)}'
+        })
+
+
 @app.route('/api/llm/export', methods=['POST'])
 def export_chat_history():
     """导出AI对话历史到Excel"""
@@ -1135,6 +1266,109 @@ def export_chat_history():
             'count': len(history)
         })
         
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'导出失败: {str(e)}'
+        })
+
+
+@app.route('/api/report/pdf', methods=['POST'])
+def export_report_pdf():
+    """导出股票推荐报告为PDF"""
+    try:
+        data = request.json
+        recommendations = data.get('recommendations', [])
+        summary = data.get('summary', {})
+
+        if not recommendations:
+            return jsonify({'success': False, 'message': '没有数据可导出'})
+
+        # 尝试使用fpdf2生成PDF
+        try:
+            from fpdf import FPDF
+
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+
+            # 添加中文字体
+            chinese_font = 'Helvetica'
+            for fp in ['C:/Windows/Fonts/simhei.ttf', 'C:/Windows/Fonts/msyh.ttc', 'C:/Windows/Fonts/simsun.ttc']:
+                if os.path.exists(fp):
+                    pdf.add_font('Chinese', '', fp)
+                    chinese_font = 'Chinese'
+                    break
+
+            # 标题
+            pdf.set_font(chinese_font, '', 16)
+            pdf.cell(0, 10, '股票推荐报告', align='C')
+            pdf.ln(15)
+
+            # 摘要
+            pdf.set_font(chinese_font, '', 10)
+            pdf.cell(0, 8, f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            pdf.ln(8)
+            pdf.cell(0, 8, f"总处理: {summary.get('total', 0)} | 有效推荐: {summary.get('valid', 0)} | 已过滤: {summary.get('filtered', 0)}")
+            pdf.ln(12)
+
+            # 表头
+            pdf.set_fill_color(74, 159, 216)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font(chinese_font, '', 9)
+
+            col_widths = [35, 25, 25, 25, 80]
+            headers = ['时间', '股票', '推荐人', '群组', '推荐理由']
+            for i, header in enumerate(headers):
+                pdf.cell(col_widths[i], 8, header, 1, 0, 'C', True)
+            pdf.ln()
+
+            # 数据行
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font(chinese_font, '', 8)
+
+            for rec in recommendations:
+                row_data = [
+                    str(rec.get('time', ''))[:16],
+                    str(rec.get('stock', ''))[:10],
+                    str(rec.get('sender', ''))[:10],
+                    str(rec.get('group', ''))[:10],
+                    str(rec.get('reason', ''))[:40]
+                ]
+                for i, cell_data in enumerate(row_data):
+                    pdf.cell(col_widths[i], 7, cell_data, 1, 0, 'L')
+                pdf.ln()
+
+            # 保存PDF (使用ASCII文件名避免URL编码问题)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'stock_report_{timestamp}.pdf'
+            output_path = APP_ROOT / 'output' / filename
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            pdf.output(str(output_path))
+
+            return jsonify({
+                'success': True,
+                'filename': filename,
+                'filepath': str(output_path)
+            })
+
+        except ImportError:
+            # 如果没有fpdf2，导出为Excel
+            df = pd.DataFrame(recommendations)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'stock_report_{timestamp}.xlsx'
+            output_path = APP_ROOT / 'output' / filename
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_excel(str(output_path), index=False)
+
+            return jsonify({
+                'success': True,
+                'filename': filename,
+                'filepath': str(output_path),
+                'note': 'PDF库未安装(pip install fpdf2)，已导出为Excel格式'
+            })
+
     except Exception as e:
         traceback.print_exc()
         return jsonify({
