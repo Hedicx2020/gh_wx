@@ -76,11 +76,6 @@ def parse_xml_content(content, create_time=None):
                     parts.append(f'类型:{fileext.upper()}')
                 if md5:
                     parts.append(f'MD5:{md5[:8]}...')
-                # 使用原始文件名构建路径
-                if title:
-                    file_path = build_file_path(title, 'file', create_time)
-                    if file_path:
-                        parts.append(f'路径:{file_path}')
 
                 if parts:
                     return ' | '.join(parts)
@@ -390,13 +385,6 @@ def parse_image_content(content, create_time=None):
                     size_str = format_file_size(length)
                     parts.append(f'大小:{size_str}')
 
-                if md5:
-                    # 图片文件名通常是MD5 (微信没有保存原始文件名)
-                    # 添加存储路径
-                    file_path = build_file_path(md5, 'image', create_time)
-                    if file_path:
-                        parts.append(f'路径:{file_path}')
-
                 if parts:
                     return ' | '.join(parts)
 
@@ -413,11 +401,21 @@ def parse_file_content(content, create_time=None):
     适用于类型6(文件)等
 
     参数:
-        content: 消息内容
+        content: 消息内容（可以是zstd压缩的bytes或已解压的字符串）
         create_time: 消息创建时间戳（用于构建文件路径）
     """
     try:
-        if isinstance(content, bytes) and is_zstd_compressed(content):
+        xml_str = None
+
+        # 处理已解压的XML字符串
+        if isinstance(content, str):
+            # 查找XML起始位置(跳过可能的wxid前缀)
+            xml_start = content.find('<?xml')
+            if xml_start >= 0:
+                xml_str = content[xml_start:].strip()
+
+        # 处理zstd压缩的bytes
+        elif isinstance(content, bytes) and is_zstd_compressed(content):
             # 解压缩
             dctx = zstd.ZstdDecompressor()
             decompressed = dctx.decompress(content)
@@ -431,58 +429,80 @@ def parse_file_content(content, create_time=None):
 
             xml_str = xml_bytes.strip(b'\x00').decode('utf-8', errors='ignore').strip()
 
-            # 解析XML
-            root = ET.fromstring(xml_str)
+        # 处理未压缩的bytes
+        elif isinstance(content, bytes):
+            decoded = content.decode('utf-8', errors='ignore')
+            xml_start = decoded.find('<?xml')
+            if xml_start >= 0:
+                xml_str = decoded[xml_start:].strip()
 
-            # 提取文件信息
-            title = root.findtext('.//title', '')
-            file_type_node = root.find('.//type')
-            file_type = int(file_type_node.text) if file_type_node is not None and file_type_node.text else 0
+        if not xml_str:
+            return '[文件]'
 
-            # 如果是类型6(文件),从appattach获取详细信息
-            if file_type == 6:
-                appattach = root.find('.//appattach')
-                if appattach is not None:
-                    totallen = appattach.findtext('totallen', '')
-                    fileext = appattach.findtext('fileext', '')
-                    md5 = root.findtext('.//md5', '')
+        # 解析XML
+        root = ET.fromstring(xml_str)
 
-                    parts = []
+        # 提取文件信息
+        title = root.findtext('.//title', '')
+        file_type_node = root.find('.//type')
+        file_type = int(file_type_node.text) if file_type_node is not None and file_type_node.text else 0
 
-                    # 文件名
-                    if title:
-                        parts.append(f'📎 {title}')
+        # 如果是类型6(文件),从appattach获取详细信息
+        if file_type == 6:
+            appattach = root.find('.//appattach')
+            if appattach is not None:
+                totallen = appattach.findtext('totallen', '')
+                fileext = appattach.findtext('fileext', '')
+                md5 = root.findtext('.//md5', '')
 
-                    # 文件大小
-                    if totallen:
-                        size_str = format_file_size(totallen)
-                        parts.append(f'大小:{size_str}')
+                parts = []
 
-                    # 文件类型
-                    if fileext:
-                        parts.append(f'类型:{fileext.upper()}')
+                # 文件名
+                if title:
+                    parts.append(f'📎 {title}')
 
-                    # MD5
-                    if md5:
-                        parts.append(f'MD5:{md5[:8]}...')
+                # 文件大小
+                if totallen:
+                    size_str = format_file_size(totallen)
+                    parts.append(f'大小:{size_str}')
 
-                    # 使用原始文件名构建路径
-                    if title:
-                        file_path = build_file_path(title, 'file', create_time)
-                        if file_path:
-                            parts.append(f'路径:{file_path}')
+                # 文件类型
+                if fileext:
+                    parts.append(f'类型:{fileext.upper()}')
 
-                    if parts:
-                        return ' | '.join(parts)
-                    elif title:
-                        return f'📎 {title}'
+                # MD5
+                if md5:
+                    parts.append(f'MD5:{md5[:8]}...')
 
-            # 其他类型的文件消息
-            if title:
-                return f'📎 文件:{title}'
+                # 路径信息不在内容中显示，由单独的file_path字段提供
+
+                if parts:
+                    return ' | '.join(parts)
+                elif title:
+                    return f'📎 {title}'
+
+        # 其他类型(链接等)也尝试提取信息
+        url = root.findtext('.//url', '')
+        desc = root.findtext('.//des', '')
+        sourcedisplayname = root.findtext('.//sourcedisplayname', '')
+
+        parts = []
+        if title:
+            parts.append(title)
+        if url:
+            parts.append(f'链接: {url}')
+        if sourcedisplayname:
+            parts.append(f'来源: {sourcedisplayname}')
+
+        if parts:
+            return ' | '.join(parts)
+
+        # 其他类型的文件消息
+        if title:
+            return f'📎 文件:{title}'
 
         return '[文件]'
-    except:
+    except Exception as e:
         return '[文件]'
 
 
@@ -502,6 +522,21 @@ def parse_message_by_type(msg_type, content, compress_content=None, create_time=
     """
     # 保留原始content用于特殊类型(如图片)的解析 - 必须在解压前保存!
     original_content = content
+
+    # 特殊类型映射：某些复合类型需要映射到基础处理类型
+    # 25769803825 = 文件类型 (XML type=6)
+    # 21474836529 = 公众号文章类型 (XML type=5)
+    # 81604378673 = 合并转发聊天记录 (XML type=19)
+    FILE_TYPE_ID = 25769803825
+    ARTICLE_TYPE_ID = 21474836529
+    CHAT_RECORD_TYPE_ID = 81604378673
+
+    # 对于这些复合类型，直接尝试解析文件/链接内容
+    if msg_type in (FILE_TYPE_ID, ARTICLE_TYPE_ID, CHAT_RECORD_TYPE_ID):
+        result = parse_file_content(original_content, create_time)
+        if result and result != '[文件]':
+            return result
+        # 如果parse_file_content失败，继续尝试其他解析方式
 
     # 如果content已经是XML字符串（从群聊中提取后已解压），直接解析
     if isinstance(content, str) and content.strip().startswith('<?xml'):

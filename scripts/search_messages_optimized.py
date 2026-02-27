@@ -41,6 +41,73 @@ def get_contact_map(contact_db_path):
     return contact_map
 
 
+def extract_file_path_from_raw_content(content, local_type, create_time):
+    """
+    从原始消息内容中提取文件路径（用于文件类型消息）
+
+    参数:
+        content: 原始消息内容（可能是zstd压缩的bytes）
+        local_type: 消息类型
+        create_time: 消息创建时间戳
+
+    返回:
+        文件相对路径，格式: msg/file/{年-月}/{文件名}，如果无法提取则返回空字符串
+    """
+    import xml.etree.ElementTree as ET
+    from datetime import datetime
+
+    # 文件类型消息
+    FILE_TYPE_ID = 25769803825
+
+    if local_type != FILE_TYPE_ID:
+        return ''
+
+    try:
+        xml_str = None
+
+        # 处理zstd压缩
+        if isinstance(content, bytes) and len(content) >= 4 and content[:4] == b'\x28\xb5\x2f\xfd':
+            dctx = zstd.ZstdDecompressor()
+            decompressed = dctx.decompress(content)
+            xml_start = decompressed.find(b'<?xml')
+            if xml_start >= 0:
+                xml_str = decompressed[xml_start:].strip(b'\x00').decode('utf-8', errors='ignore')
+        elif isinstance(content, bytes):
+            decoded = content.decode('utf-8', errors='ignore')
+            xml_start = decoded.find('<?xml')
+            if xml_start >= 0:
+                xml_str = decoded[xml_start:]
+        elif isinstance(content, str):
+            xml_start = content.find('<?xml')
+            if xml_start >= 0:
+                xml_str = content[xml_start:]
+
+        if not xml_str:
+            return ''
+
+        # 解析XML提取文件名
+        root = ET.fromstring(xml_str)
+        title = root.findtext('.//title', '')
+
+        if not title:
+            return ''
+
+        # 构建路径
+        if create_time:
+            try:
+                dt = datetime.fromtimestamp(create_time)
+                year_month = f'{dt.year}-{dt.month:02d}'
+            except:
+                year_month = '未知时间'
+        else:
+            year_month = '未知时间'
+
+        return f'msg/file/{year_month}/{title}'
+
+    except:
+        return ''
+
+
 def extract_path_from_parsed_content(parsed_content):
     """
     从解析后的内容中提取路径或URL
@@ -484,8 +551,11 @@ class MessageSearcher:
                                 # 这样解析器可以检测zstd压缩并正确处理，同时能构建正确的文件路径
                                 parsed_content = parse_message_by_type(local_type, content_for_parser, compress_content, create_time)
 
-                                # 提取路径或URL
-                                path_or_url = extract_path_from_parsed_content(parsed_content)
+                                # 提取路径或URL - 文件类型使用专门函数提取
+                                path_or_url = extract_file_path_from_raw_content(original_content, local_type, create_time)
+                                if not path_or_url:
+                                    # 其他类型从解析后的内容中提取
+                                    path_or_url = extract_path_from_parsed_content(parsed_content)
 
                                 all_messages.append({
                                     '时间': msg_time,

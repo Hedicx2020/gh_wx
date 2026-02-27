@@ -322,18 +322,45 @@ def search():
             exclude_self=exclude_self
         )
 
+        # 获取微信文件根目录（用于构建完整文件路径）
+        wechat_files_path = config_manager.get('wechat_files_path')
+        wechat_root = Path(wechat_files_path).parent if wechat_files_path else None
+        wechat_root_str = str(wechat_root) if wechat_root else ''
+
         # 转换结果 - 显示所有结果
         results_list = []
+        import re
         for idx, row in results.iterrows():
-            results_list.append({
+            content = str(row['内容'])
+
+            # 将内容中的相对路径替换为完整路径
+            # 格式: "路径:msg/file/2025-09/xxx.pdf" -> "路径:C:\Users\...\msg\file\2025-09\xxx.pdf"
+            if wechat_root_str and '路径:msg/' in content:
+                def replace_path(match):
+                    relative = match.group(1)
+                    full = str(wechat_root / relative)
+                    return f'路径:{full}'
+                content = re.sub(r'路径:(msg/[^\s|]+)', replace_path, content)
+
+            result_item = {
                 'id': int(idx),
                 'time': row['时间'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(row['时间']) else '',
                 'chat_name': str(row['聊天对象']),
                 'sender': str(row['发言人']),
                 'type': int(row['消息类型']),
                 'type_name': get_message_type_name(int(row['消息类型'])),
-                'content': str(row['内容'])  # 显示完整内容
-            })
+                'content': content  # 显示完整内容（路径已转换）
+            }
+            # 添加文件路径字段（如果有）- 构建完整路径
+            if '路径' in row and pd.notna(row['路径']) and row['路径']:
+                relative_path = str(row['路径'])
+                if wechat_root and relative_path.startswith('msg/'):
+                    # 构建完整路径：wechat_root / relative_path
+                    full_path = wechat_root / relative_path
+                    result_item['file_path'] = str(full_path)
+                else:
+                    result_item['file_path'] = relative_path
+            results_list.append(result_item)
 
         # 排除特定聊天对象（同时匹配聊天对象和发言人）
         if exclude_contacts:
@@ -470,6 +497,88 @@ def download(filename):
             'success': False,
             'message': '文件不存在'
         })
+
+
+@app.route('/api/export/contacts', methods=['GET'])
+def export_contacts():
+    """导出通讯录到Excel"""
+    try:
+        import sqlite3
+
+        # 查找联系人数据库
+        contact_dbs = list(OUTPUT_BASE_DIR.glob('*/contact.db'))
+        if not contact_dbs:
+            return jsonify({'success': False, 'message': '未找到联系人数据库，请先解密数据库'})
+
+        all_contacts = []
+        for db_path in contact_dbs:
+            try:
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+
+                # 查询联系人信息（包含群聊）
+                cursor.execute('''
+                    SELECT nick_name, remark, alias, username, local_type
+                    FROM contact
+                    WHERE delete_flag = 0
+                    AND username NOT LIKE 'gh_%'
+                    ORDER BY local_type, remark, nick_name
+                ''')
+
+                for row in cursor.fetchall():
+                    nick_name, remark, alias, username, local_type = row
+                    # 过滤系统账号
+                    if username in ['filehelper', 'newsapp', 'fmessage', 'medianote', 'floatbottle', 'weixin']:
+                        continue
+
+                    # 判断类型
+                    if '@chatroom' in (username or ''):
+                        contact_type = '群聊'
+                    elif local_type == 1:
+                        contact_type = '好友'
+                    else:
+                        contact_type = '其他'
+
+                    all_contacts.append({
+                        '昵称': nick_name or '',
+                        '备注': remark or '',
+                        '微信号': alias or '',
+                        '原始ID': username or '',
+                        '类型': contact_type
+                    })
+                conn.close()
+            except Exception as e:
+                print(f"读取 {db_path} 失败: {e}")
+                continue
+
+        if not all_contacts:
+            return jsonify({'success': False, 'message': '未找到联系人数据'})
+
+        # 去重（按原始ID）
+        seen = set()
+        unique_contacts = []
+        for c in all_contacts:
+            if c['原始ID'] not in seen:
+                seen.add(c['原始ID'])
+                unique_contacts.append(c)
+
+        # 导出到Excel
+        df = pd.DataFrame(unique_contacts)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'contacts_{timestamp}.xlsx'
+        output_path = APP_ROOT / 'output' / filename
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_excel(str(output_path), index=False)
+
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'count': len(unique_contacts)
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'导出失败: {str(e)}'})
 
 
 @app.route('/api/stats')
@@ -738,6 +847,7 @@ def get_message_type_name(msg_type):
     type_map = {
         1: '文本',
         3: '图片',
+        6: '文件',
         34: '语音',
         43: '视频',
         47: '表情',
@@ -746,7 +856,8 @@ def get_message_type_name(msg_type):
         10000: '系统消息',
         10002: '撤回消息',
         21474836529: '公众号文章',
-        81604378673: '文件'
+        25769803825: '文件',
+        81604378673: '聊天记录转发'
     }
     return type_map.get(msg_type, f'类型{msg_type}')
 
@@ -1318,27 +1429,47 @@ def export_report_pdf():
             pdf.set_text_color(255, 255, 255)
             pdf.set_font(chinese_font, '', 9)
 
-            col_widths = [35, 25, 25, 25, 80]
+            col_widths = [30, 22, 22, 25, 90]
             headers = ['时间', '股票', '推荐人', '群组', '推荐理由']
             for i, header in enumerate(headers):
                 pdf.cell(col_widths[i], 8, header, 1, 0, 'C', True)
             pdf.ln()
 
-            # 数据行
+            # 数据行 - 使用multi_cell支持自动换行
             pdf.set_text_color(0, 0, 0)
             pdf.set_font(chinese_font, '', 8)
 
+            line_height = 5
             for rec in recommendations:
-                row_data = [
-                    str(rec.get('time', ''))[:16],
-                    str(rec.get('stock', ''))[:10],
-                    str(rec.get('sender', ''))[:10],
-                    str(rec.get('group', ''))[:10],
-                    str(rec.get('reason', ''))[:40]
-                ]
-                for i, cell_data in enumerate(row_data):
-                    pdf.cell(col_widths[i], 7, cell_data, 1, 0, 'L')
-                pdf.ln()
+                # 准备数据
+                time_str = str(rec.get('time', ''))[:16]
+                stock_str = str(rec.get('stock', ''))[:12]
+                sender_str = str(rec.get('sender', ''))[:10]
+                group_str = str(rec.get('group', ''))[:12]
+                reason_str = str(rec.get('reason', ''))[:100]  # 允许更长的理由
+
+                # 计算推荐理由需要的行数
+                reason_width = col_widths[4] - 2
+                char_per_line = int(reason_width / 2.5)  # 估算每行字符数
+                reason_lines = max(1, (len(reason_str) + char_per_line - 1) // char_per_line)
+                row_height = max(line_height * reason_lines, line_height * 2)
+
+                # 保存当前位置
+                x_start = pdf.get_x()
+                y_start = pdf.get_y()
+
+                # 绘制前4列（固定高度单元格）
+                pdf.cell(col_widths[0], row_height, time_str, 1, 0, 'L')
+                pdf.cell(col_widths[1], row_height, stock_str, 1, 0, 'L')
+                pdf.cell(col_widths[2], row_height, sender_str, 1, 0, 'L')
+                pdf.cell(col_widths[3], row_height, group_str, 1, 0, 'L')
+
+                # 第5列使用multi_cell支持换行
+                x_reason = pdf.get_x()
+                pdf.multi_cell(col_widths[4], line_height, reason_str, 1, 'L')
+
+                # 移到下一行
+                pdf.set_xy(x_start, y_start + row_height)
 
             # 保存PDF (使用ASCII文件名避免URL编码问题)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
