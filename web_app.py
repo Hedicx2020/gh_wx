@@ -17,6 +17,26 @@ from flask_cors import CORS
 import pandas as pd
 import json as json_module
 
+# 预加载fpdf2
+try:
+    from fpdf import FPDF
+    FPDF_AVAILABLE = True
+except Exception as _fpdf_err:
+    FPDF_AVAILABLE = False
+    print(f"[WARNING] fpdf2 导入失败: {type(_fpdf_err).__name__}: {_fpdf_err}", flush=True)
+    # 非打包环境下尝试自动安装
+    if not getattr(sys, 'frozen', False):
+        try:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', 'fpdf2'],
+                           capture_output=True, timeout=60)
+            from fpdf import FPDF
+            FPDF_AVAILABLE = True
+            print("[INFO] fpdf2 已自动安装")
+        except Exception:
+            pass
+    if not FPDF_AVAILABLE:
+        print("[WARNING] fpdf2 未安装，PDF导出不可用")
+
 # 判断是否是打包后的exe运行
 def get_app_path():
     """获取应用程序所在目录（兼容exe和脚本运行）"""
@@ -285,6 +305,13 @@ def search():
         # 获取搜索参数
         start_date = data.get('start_date') or None
         end_date = data.get('end_date') or None
+
+        print(f"[DEBUG] 收到搜索请求 start_date={start_date!r}, end_date={end_date!r}", flush=True)
+
+        # 智能补全：设了开始时间但没设结束时间，自动补为当天23:59
+        if start_date and not end_date:
+            end_date = start_date[:10] + 'T23:59'
+            print(f"[DEBUG] 自动补全 end_date={end_date!r}", flush=True)
         chat_name = data.get('chat_name') or None
         sender_name = data.get('sender_name') or None
         keyword = data.get('keyword') or None
@@ -842,6 +869,136 @@ def stock_review():
         })
 
 
+@app.route('/api/stock/screener', methods=['POST'])
+def stock_screener_api():
+    """冷门股筛选API"""
+    global searcher
+
+    try:
+        data = request.json
+
+        cold_days = int(data.get('cold_days', 30))
+        recommend_days = int(data.get('recommend_days', 7))
+        new_stock_days = int(data.get('new_stock_days', 60))
+        start_date = data.get('start_date', '')
+        end_date = data.get('end_date', '')
+        frequency = data.get('frequency', 'daily')
+        recommend_keywords_str = data.get('recommend_keywords', '')
+        markets = data.get('markets', ['a_stock'])
+        chat_name = data.get('chat_name', '').strip() or None
+        exclude_contacts = data.get('exclude_contacts', '').strip() or None
+        delete_keywords = data.get('delete_keywords', '').strip() or None
+
+        # 参数校验
+        if not start_date or not end_date:
+            return jsonify({'success': False, 'message': '请选择日期范围'})
+        if cold_days < 0 or recommend_days < 1 or new_stock_days < 0:
+            return jsonify({'success': False, 'message': '参数值不合法'})
+
+        # 解析推荐关键词
+        recommend_keywords = None
+        if recommend_keywords_str:
+            recommend_keywords = [kw.strip() for kw in recommend_keywords_str.split(',') if kw.strip()]
+
+        # 确保 searcher 已初始化
+        if searcher is None:
+            init_searcher()
+        if searcher is None:
+            return jsonify({'success': False, 'message': '搜索器未初始化，请先配置数据库路径'})
+
+        # 创建选股筛选器
+        from stock_screener import StockScreener
+        screener = StockScreener(searcher, get_stock_filter())
+
+        # 生成目标日期列表
+        target_dates = screener.generate_target_dates(start_date, end_date, frequency)
+        if not target_dates:
+            return jsonify({'success': False, 'message': '未生成任何目标日期，请检查日期范围和频率设置'})
+
+        print(f"[选股API] 参数: N={cold_days}, M={recommend_days}, T={new_stock_days}, "
+              f"频率={frequency}, 目标日期数={len(target_dates)}, 市场={markets}")
+
+        # 执行筛选
+        result = screener.screen(
+            target_dates=target_dates,
+            cold_days=cold_days,
+            recommend_days=recommend_days,
+            new_stock_days=new_stock_days,
+            recommend_keywords=recommend_keywords,
+            markets=markets,
+            chat_name=chat_name,
+            exclude_contacts=exclude_contacts,
+            delete_keywords=delete_keywords,
+        )
+
+        return jsonify({
+            'success': True,
+            'results': result['results'],
+            'stats': result['stats'],
+            'target_dates': target_dates,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'选股筛选失败: {str(e)}'
+        })
+
+
+@app.route('/api/stock/screener/export', methods=['POST'])
+def export_screener_api():
+    """导出选股筛选结果为Excel"""
+    try:
+        data = request.json
+        results = data.get('results', {})
+
+        if not results:
+            return jsonify({'success': False, 'message': '没有可导出的数据'})
+
+        # 构建 DataFrame
+        rows = []
+        for date_str, stocks in results.items():
+            for stock in stocks:
+                rows.append({
+                    '目标日期': date_str,
+                    '股票代码': stock.get('code', ''),
+                    '股票名称': stock.get('name', ''),
+                    '上市日期': stock.get('listing_date', ''),
+                    '推荐次数': stock.get('recommend_count', 0),
+                    '最近推荐日期': stock.get('latest_recommend_date', ''),
+                    '推荐消息摘要': '; '.join(
+                        f"[{m.get('time', '')}] {m.get('sender', '')}@{m.get('chat_name', '')}: {m.get('content', '')[:80]}"
+                        for m in stock.get('recommend_messages', [])[:3]
+                    ),
+                })
+
+        df = pd.DataFrame(rows)
+
+        # 生成 Excel 文件
+        output_dir = APP_ROOT / 'output'
+        output_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"stock_screener_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        output_path = output_dir / filename
+
+        df.to_excel(str(output_path), index=False, engine='openpyxl')
+        print(f"[选股导出] 导出成功: {output_path}, {len(rows)}条记录")
+
+        return send_file(
+            str(output_path),
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'导出失败: {str(e)}'
+        })
+
+
 def get_message_type_name(msg_type):
     """获取消息类型名称"""
     type_map = {
@@ -1396,10 +1553,8 @@ def export_report_pdf():
         if not recommendations:
             return jsonify({'success': False, 'message': '没有数据可导出'})
 
-        # 尝试使用fpdf2生成PDF
-        try:
-            from fpdf import FPDF
-
+        # 使用fpdf2生成PDF
+        if FPDF_AVAILABLE:
             pdf = FPDF()
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
@@ -1429,13 +1584,13 @@ def export_report_pdf():
             pdf.set_text_color(255, 255, 255)
             pdf.set_font(chinese_font, '', 9)
 
-            col_widths = [30, 22, 22, 25, 90]
+            col_widths = [30, 25, 25, 30, 80]
             headers = ['时间', '股票', '推荐人', '群组', '推荐理由']
             for i, header in enumerate(headers):
                 pdf.cell(col_widths[i], 8, header, 1, 0, 'C', True)
             pdf.ln()
 
-            # 数据行 - 使用multi_cell支持自动换行
+            # 数据行 - 除时间外都支持自动换行
             pdf.set_text_color(0, 0, 0)
             pdf.set_font(chinese_font, '', 8)
 
@@ -1443,30 +1598,65 @@ def export_report_pdf():
             for rec in recommendations:
                 # 准备数据
                 time_str = str(rec.get('time', ''))[:16]
-                stock_str = str(rec.get('stock', ''))[:12]
-                sender_str = str(rec.get('sender', ''))[:10]
-                group_str = str(rec.get('group', ''))[:12]
-                reason_str = str(rec.get('reason', ''))[:100]  # 允许更长的理由
+                stock_str = str(rec.get('stock', ''))
+                sender_str = str(rec.get('sender', ''))
+                group_str = str(rec.get('group', ''))
+                reason_str = str(rec.get('reason', ''))[:100]
 
-                # 计算推荐理由需要的行数
-                reason_width = col_widths[4] - 2
-                char_per_line = int(reason_width / 2.5)  # 估算每行字符数
-                reason_lines = max(1, (len(reason_str) + char_per_line - 1) // char_per_line)
-                row_height = max(line_height * reason_lines, line_height * 2)
+                # 计算每列需要的行数（除时间列外）
+                def calc_lines(text, col_width):
+                    if not text:
+                        return 1
+                    char_per_line = max(1, int((col_width - 2) / 2.5))
+                    return max(1, (len(text) + char_per_line - 1) // char_per_line)
+
+                stock_lines = calc_lines(stock_str, col_widths[1])
+                sender_lines = calc_lines(sender_str, col_widths[2])
+                group_lines = calc_lines(group_str, col_widths[3])
+                reason_lines = calc_lines(reason_str, col_widths[4])
+
+                # 取所有列的最大行数，确定行高
+                max_lines = max(stock_lines, sender_lines, group_lines, reason_lines, 2)
+                row_height = line_height * max_lines
 
                 # 保存当前位置
                 x_start = pdf.get_x()
                 y_start = pdf.get_y()
 
-                # 绘制前4列（固定高度单元格）
-                pdf.cell(col_widths[0], row_height, time_str, 1, 0, 'L')
-                pdf.cell(col_widths[1], row_height, stock_str, 1, 0, 'L')
-                pdf.cell(col_widths[2], row_height, sender_str, 1, 0, 'L')
-                pdf.cell(col_widths[3], row_height, group_str, 1, 0, 'L')
+                # 检查是否需要换页
+                if y_start + row_height > pdf.h - 20:
+                    pdf.add_page()
+                    x_start = pdf.get_x()
+                    y_start = pdf.get_y()
 
-                # 第5列使用multi_cell支持换行
-                x_reason = pdf.get_x()
-                pdf.multi_cell(col_widths[4], line_height, reason_str, 1, 'L')
+                # 第1列：时间（不换行）
+                pdf.set_xy(x_start, y_start)
+                pdf.cell(col_widths[0], row_height, time_str, 1, 0, 'L')
+
+                # 第2列：股票（自动换行）
+                x_col = x_start + col_widths[0]
+                pdf.set_xy(x_col, y_start)
+                pdf.multi_cell(col_widths[1], line_height, stock_str, 0, 'L')
+                # 绘制边框
+                pdf.rect(x_col, y_start, col_widths[1], row_height)
+
+                # 第3列：推荐人（自动换行）
+                x_col = x_start + col_widths[0] + col_widths[1]
+                pdf.set_xy(x_col, y_start)
+                pdf.multi_cell(col_widths[2], line_height, sender_str, 0, 'L')
+                pdf.rect(x_col, y_start, col_widths[2], row_height)
+
+                # 第4列：群组（自动换行）
+                x_col = x_start + col_widths[0] + col_widths[1] + col_widths[2]
+                pdf.set_xy(x_col, y_start)
+                pdf.multi_cell(col_widths[3], line_height, group_str, 0, 'L')
+                pdf.rect(x_col, y_start, col_widths[3], row_height)
+
+                # 第5列：推荐理由（自动换行）
+                x_col = x_start + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3]
+                pdf.set_xy(x_col, y_start)
+                pdf.multi_cell(col_widths[4], line_height, reason_str, 0, 'L')
+                pdf.rect(x_col, y_start, col_widths[4], row_height)
 
                 # 移到下一行
                 pdf.set_xy(x_start, y_start + row_height)
@@ -1484,20 +1674,10 @@ def export_report_pdf():
                 'filepath': str(output_path)
             })
 
-        except ImportError:
-            # 如果没有fpdf2，导出为Excel
-            df = pd.DataFrame(recommendations)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'stock_report_{timestamp}.xlsx'
-            output_path = APP_ROOT / 'output' / filename
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_excel(str(output_path), index=False)
-
+        else:
             return jsonify({
-                'success': True,
-                'filename': filename,
-                'filepath': str(output_path),
-                'note': 'PDF库未安装(pip install fpdf2)，已导出为Excel格式'
+                'success': False,
+                'message': 'PDF库未安装，请执行: pip install fpdf2'
             })
 
     except Exception as e:

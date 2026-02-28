@@ -199,6 +199,50 @@ Known edge cases:
 - Files already decrypted (starting with SQLite header) are copied directly
 - Files < 4096 bytes are skipped as invalid
 
+## PyInstaller 打包
+
+### 打包命令
+
+```bash
+pyinstaller wechat_tool.spec --noconfirm
+```
+
+输出: `dist/国海金工微信数据筛选工具v2.5.1.exe` (~70MB 单文件)
+
+### 打包配置要点 (`wechat_tool.spec`)
+
+**Python 环境**: PyInstaller 使用 Python 3.9 (`C:\Users\45349\AppData\Local\Programs\Python\Python39`)
+
+**关键依赖收集**:
+- `collect_submodules('wechat_decrypt_tool')` - 内部模块
+- `collect_submodules('fpdf')` - fpdf2 所有子模块（必须全量收集，手动列举会遗漏）
+- `collect_data_files('fpdf')` - fpdf2 内置字体等数据文件
+- `collect_all('flask_cors')` / `collect_all('flask')` - Flask 全量收集
+- `collect_data_files('pyecharts')` - K线图模板
+- `collect_data_files('akshare')` - 股票数据
+
+**excludes 注意事项**:
+- `unittest` **不能排除** — fpdf2 的 `fpdf.sign` 模块顶层依赖 `unittest.mock`，排除会导致整个 fpdf 包无法导入
+- 可安全排除: torch/tensorflow/sklearn/matplotlib/pyarrow/tkinter 等未使用的大型库
+
+**EXE 环境特殊处理** (`sys.frozen`):
+- `sys.executable` 指向 EXE 自身，不能用于 `pip install`（会死循环启动 EXE）
+- `APP_ROOT = Path(sys.executable).parent`（EXE 所在目录）
+- 必须用 `getattr(sys, 'frozen', False)` 判断是否为打包环境
+
+### 时间戳处理（时区陷阱）
+
+**重要**: 时间过滤必须用 `datetime.fromisoformat()` 而非 `pd.to_datetime()`
+
+- `pd.to_datetime('2025-12-26T00:00').timestamp()` → 按 **UTC** 解析 → 本地时间偏移 8 小时
+- `datetime.fromisoformat('2025-12-26T00:00').timestamp()` → 按 **本地时间** 解析 → 正确
+
+前端 `datetime-local` 输入的值是本地时间，后端必须按本地时间处理。`datetime.fromtimestamp()` 显示也是本地时间，两端一致。
+
+### 前端去重逻辑
+
+去重在前端执行（`deduplicateResults` 函数），key 仅使用 `content`（不含 chat_name/sender），支持跨群跨发送者去重。适用于股票推荐等转发场景。
+
 ## Static File Serving
 
 The Flask app serves static files with security constraints:

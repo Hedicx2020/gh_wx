@@ -755,8 +755,107 @@
                 </div>
             </div>
 
+            <!-- SECTION 5: STOCK SCREENER -->
+            <div class="card" id="screener-section">
+                <div class="module-label">模块 E: 选股 <span style="color:#e67e22;font-size:11px;font-weight:normal;">(beta测试中)</span></div>
+                <div class="card-title">冷门股筛选</div>
+
+                <!-- 参数输入区 -->
+                <div class="config-grid" style="grid-template-columns: repeat(4, 1fr);">
+                    <div class="form-group">
+                        <label>冷门期天数 (N) <small>多少天没人提</small></label>
+                        <input type="number" id="screen_cold_days" value="30" min="0" max="365">
+                    </div>
+                    <div class="form-group">
+                        <label>推荐期天数 (M) <small>近多少天有推荐</small></label>
+                        <input type="number" id="screen_recommend_days" value="7" min="1" max="90">
+                    </div>
+                    <div class="form-group">
+                        <label>新股剔除天数 (T) <small>上市不足T天排除</small></label>
+                        <input type="number" id="screen_new_stock_days" value="60" min="0" max="3650">
+                    </div>
+                    <div class="form-group">
+                        <label>聊天对象 <small>(可选,逗号分隔)</small></label>
+                        <input type="text" id="screen_chat_name" placeholder="群名/好友名...">
+                    </div>
+                </div>
+
+                <div class="config-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                    <div class="form-group">
+                        <label>开始日期</label>
+                        <input type="date" id="screen_start_date">
+                    </div>
+                    <div class="form-group">
+                        <label>结束日期</label>
+                        <input type="date" id="screen_end_date">
+                    </div>
+                    <div class="form-group">
+                        <label>筛选频率</label>
+                        <select id="screen_frequency">
+                            <option value="daily">每日</option>
+                            <option value="weekly_sunday" selected>每周日</option>
+                            <option value="monthly_last">每月最后一天</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="config-grid" style="grid-template-columns: 2fr 1fr;">
+                    <div class="form-group">
+                        <label>推荐关键词 <small>(逗号分隔,消息需含股票名+关键词)</small></label>
+                        <input type="text" id="screen_recommend_keywords" value="推荐,看好,建议买,值得关注,机会,潜力,低估,买入,加仓,重点关注" placeholder="推荐,看好,建议买...">
+                    </div>
+                    <div class="form-group">
+                        <label>市场筛选</label>
+                        <div style="display: flex; gap: 15px; padding: 8px 10px; background: #fcfcfc; border: var(--border-width) solid #ccc; align-items: center; height: 38px;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                <input type="checkbox" id="screen_a_stock" value="a_stock" checked style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [A股]
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                <input type="checkbox" id="screen_hk_stock" value="hk_stock" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [港股]
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                <input type="checkbox" id="screen_us_stock" value="us_stock" style="width: 16px; height: 16px; accent-color: var(--primary-blue);"> [美股]
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 操作按钮 -->
+                <div class="decrypt-actions" style="grid-template-columns: 1fr 1fr 1fr;">
+                    <button class="btn" onclick="runStockScreener()" id="screen-btn">[开始筛选]</button>
+                    <button class="btn" onclick="exportScreenerResults()" id="export-screen-btn" disabled>[导出结果]</button>
+                    <button class="btn" onclick="clearScreener()">[重置]</button>
+                </div>
+
+                <div id="screen-message"></div>
+
+                <!-- 进度条 -->
+                <div id="screen-progress" style="display: none; margin: 15px 0;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px;">
+                        <span id="screen-progress-text">筛选中...</span>
+                        <span id="screen-progress-percent">0%</span>
+                    </div>
+                    <div class="progress-bar-container" style="height: 20px; background: #e0e0e0; border: var(--border-width) solid #ccc; position: relative; overflow: hidden;">
+                        <div id="screen-progress-bar" class="progress-bar-fill" style="height: 100%; width: 0%; background: var(--primary-blue); transition: width 0.3s ease;"></div>
+                        <div class="progress-bar-stripes" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px); animation: progress-stripes 1s linear infinite;"></div>
+                    </div>
+                </div>
+
+                <!-- 筛选结果展示区 -->
+                <div id="screen-results-container" style="display: none;">
+                    <div class="section-divider"></div>
+                    <div class="card-title">筛选结果 <span id="screen-result-summary" style="font-weight: normal; font-size: 12px;"></span></div>
+
+                    <!-- 日期标签页 -->
+                    <div id="screen-date-tabs" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 15px;"></div>
+
+                    <!-- 结果列表 -->
+                    <div id="screen-results-list" style="max-height: 500px; overflow-y: auto;"></div>
+                </div>
+            </div>
+
         </div>
-        
+
         <!-- Footer -->
         <div style="text-align: center; margin-top: 40px; font-size: 10px; color: #999; font-family: 'Courier New', Courier, monospace;">
             (c) 2025 GUOHAI SECURITIES CO., LTD. | SYSTEM VERSION 2.0
@@ -846,11 +945,16 @@
         let currentReviewData = null;
         let isStreaming = false;
 
+        // 选股相关变量
+        let screenResults = null;
+        let currentScreenDate = null;
+
         // 页面加载时初始化
         window.onload = function() {
             loadConfig();
             checkStockDataStatus();
             initDedupToggle();
+            initScreenerDates();
         };
         
         function initDedupToggle() {
@@ -1330,11 +1434,11 @@
             let deduped = Array.isArray(results) ? [...results] : [];
             const { dedup_day, dedup_content_latest, dedup_content_earliest } = options;
 
-            // 按内容去重（保留最早/最晚）
+            // 按内容去重（保留最早/最晚）- 仅按内容匹配，跨群跨发送者去重
             if (dedup_content_latest || dedup_content_earliest) {
                 const map = new Map();
                 deduped.forEach(msg => {
-                    const key = `${msg.chat_name}|${msg.sender}|${msg.content}`;
+                    const key = msg.content;
                     if (!map.has(key) || dedup_content_latest) {
                         map.set(key, msg); // 覆盖则保留最后一次
                     }
@@ -1342,12 +1446,12 @@
                 deduped = Array.from(map.values());
             }
 
-            // 按日去重（同一天 同聊天+发送者+内容仅一条）
+            // 按日去重（同一天相同内容仅保留一条）
             if (dedup_day) {
                 const seen = new Set();
                 deduped = deduped.filter(msg => {
                     const dateOnly = msg.time ? msg.time.split(' ')[0] : '';
-                    const key = `${dateOnly}|${msg.chat_name}|${msg.sender}|${msg.content}`;
+                    const key = `${dateOnly}|${msg.content}`;
                     if (seen.has(key)) return false;
                     seen.add(key);
                     return true;
@@ -2707,6 +2811,238 @@
                 msgDiv.innerHTML = `<div class="alert alert-error">[X] 导出失败: ${err.message}</div>`;
             });
         }
+        // ========== 模块E: 选股相关函数 ==========
+
+        function initScreenerDates() {
+            const today = new Date();
+            const endDate = today.toISOString().split('T')[0];
+            const startDate = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const endEl = document.getElementById('screen_end_date');
+            const startEl = document.getElementById('screen_start_date');
+            if (endEl && !endEl.value) endEl.value = endDate;
+            if (startEl && !startEl.value) startEl.value = startDate;
+        }
+
+        async function runStockScreener() {
+            const msgDiv = document.getElementById('screen-message');
+            const btn = document.getElementById('screen-btn');
+
+            const coldDays = parseInt(document.getElementById('screen_cold_days').value) || 30;
+            const recommendDays = parseInt(document.getElementById('screen_recommend_days').value) || 7;
+            const newStockDays = parseInt(document.getElementById('screen_new_stock_days').value) || 60;
+            const startDate = document.getElementById('screen_start_date').value;
+            const endDate = document.getElementById('screen_end_date').value;
+            const frequency = document.getElementById('screen_frequency').value;
+            const recommendKeywords = document.getElementById('screen_recommend_keywords').value;
+            const chatName = document.getElementById('screen_chat_name').value;
+
+            if (!startDate || !endDate) {
+                msgDiv.innerHTML = '<div class="alert alert-error">[X] 请选择日期范围</div>';
+                return;
+            }
+
+            // 收集市场选择
+            const markets = [];
+            if (document.getElementById('screen_a_stock').checked) markets.push('a_stock');
+            if (document.getElementById('screen_hk_stock').checked) markets.push('hk_stock');
+            if (document.getElementById('screen_us_stock').checked) markets.push('us_stock');
+
+            if (markets.length === 0) {
+                msgDiv.innerHTML = '<div class="alert alert-error">[X] 请至少选择一个市场</div>';
+                return;
+            }
+
+            // 显示进度
+            btn.disabled = true;
+            btn.textContent = '[筛选中...]';
+            const progressDiv = document.getElementById('screen-progress');
+            progressDiv.style.display = 'block';
+            document.getElementById('screen-progress-text').textContent = '正在搜索消息并匹配股票...';
+            document.getElementById('screen-progress-percent').textContent = '';
+            document.getElementById('screen-progress-bar').style.width = '30%';
+            msgDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/stock/screener', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cold_days: coldDays,
+                        recommend_days: recommendDays,
+                        new_stock_days: newStockDays,
+                        start_date: startDate,
+                        end_date: endDate,
+                        frequency: frequency,
+                        recommend_keywords: recommendKeywords,
+                        markets: markets,
+                        chat_name: chatName,
+                    })
+                });
+
+                document.getElementById('screen-progress-bar').style.width = '90%';
+
+                const data = await response.json();
+
+                if (data.success) {
+                    screenResults = data.results;
+                    displayScreenResults(data.results, data.stats, data.target_dates);
+
+                    const totalStocks = Object.values(data.results).reduce((sum, arr) => sum + arr.length, 0);
+                    msgDiv.innerHTML = `<div class="alert alert-success">[OK] 筛选完成 | 扫描消息: ${data.stats.total_messages_scanned || 0} | 匹配消息: ${data.stats.matched_messages || 0} | 目标日期: ${data.stats.target_dates_count || 0} | 结果: ${totalStocks} 只股票</div>`;
+                } else {
+                    msgDiv.innerHTML = `<div class="alert alert-error">[X] ${data.message}</div>`;
+                }
+            } catch (err) {
+                msgDiv.innerHTML = `<div class="alert alert-error">[X] 筛选失败: ${err.message}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '[开始筛选]';
+                progressDiv.style.display = 'none';
+            }
+        }
+
+        function displayScreenResults(results, stats, targetDates) {
+            const container = document.getElementById('screen-results-container');
+            const tabsDiv = document.getElementById('screen-date-tabs');
+            const listDiv = document.getElementById('screen-results-list');
+            const summarySpan = document.getElementById('screen-result-summary');
+
+            // 过滤有结果的日期
+            const datesWithResults = (targetDates || Object.keys(results)).filter(d => results[d] && results[d].length > 0);
+            const allDates = targetDates || Object.keys(results);
+
+            if (datesWithResults.length === 0) {
+                container.style.display = 'block';
+                tabsDiv.innerHTML = '';
+                listDiv.innerHTML = '<div style="text-align: center; padding: 30px; color: #999;">[?] 未找到符合条件的股票</div>';
+                summarySpan.textContent = '(0只)';
+                document.getElementById('export-screen-btn').disabled = true;
+                return;
+            }
+
+            // 生成日期标签页
+            tabsDiv.innerHTML = allDates.map((date, idx) => {
+                const count = (results[date] || []).length;
+                const isActive = date === datesWithResults[0];
+                return `<button class="btn btn-small screen-tab ${isActive ? 'screen-tab-active' : ''}"
+                    onclick="switchScreenDate('${date}')"
+                    data-date="${date}"
+                    style="padding: 6px 14px; font-size: 11px; ${isActive ? 'background: var(--primary-blue); color: white;' : ''} ${count === 0 ? 'opacity: 0.5;' : ''}">
+                    ${date} (${count})
+                </button>`;
+            }).join('');
+
+            // 显示第一个有结果的日期
+            currentScreenDate = datesWithResults[0];
+            renderScreenStocks(results[currentScreenDate]);
+
+            const totalStocks = datesWithResults.reduce((sum, d) => sum + (results[d] || []).length, 0);
+            summarySpan.textContent = `(${datesWithResults.length}个日期, 共${totalStocks}只)`;
+            container.style.display = 'block';
+            document.getElementById('export-screen-btn').disabled = false;
+        }
+
+        function switchScreenDate(dateStr) {
+            if (!screenResults) return;
+            currentScreenDate = dateStr;
+
+            // 更新标签样式
+            document.querySelectorAll('.screen-tab').forEach(tab => {
+                const isActive = tab.dataset.date === dateStr;
+                tab.classList.toggle('screen-tab-active', isActive);
+                tab.style.background = isActive ? 'var(--primary-blue)' : '';
+                tab.style.color = isActive ? 'white' : '';
+            });
+
+            renderScreenStocks(screenResults[dateStr] || []);
+        }
+
+        function renderScreenStocks(stocks) {
+            const listDiv = document.getElementById('screen-results-list');
+
+            if (!stocks || stocks.length === 0) {
+                listDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">[?] 该日期无符合条件的股票</div>';
+                return;
+            }
+
+            listDiv.innerHTML = stocks.map((stock, idx) => {
+                const messagesHtml = (stock.recommend_messages || []).map(m =>
+                    `<div style="padding: 3px 0; border-bottom: 1px dotted #eee; font-size: 11px; color: #555;">
+                        <span style="color: #999;">[${m.time || ''}]</span>
+                        <strong>${escapeHtml(m.sender || '')}</strong>@${escapeHtml(m.chat_name || '')}:
+                        ${escapeHtml((m.content || '').substring(0, 120))}${(m.content || '').length > 120 ? '...' : ''}
+                    </div>`
+                ).join('');
+
+                return `<div style="background: #f8f9fa; padding: 15px; border: 1px solid #ddd; border-left: 4px solid var(--primary-blue); margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="font-weight: bold; font-size: 14px;">${escapeHtml(stock.name)}</span>
+                            <span style="color: #666; font-size: 12px; margin-left: 10px;">${escapeHtml(stock.code)}</span>
+                        </div>
+                        <span style="color: #27ae60; font-weight: bold; font-size: 13px;">推荐 ${stock.recommend_count} 次</span>
+                    </div>
+                    <div style="margin-top: 8px; font-size: 12px; color: #888;">
+                        上市: ${stock.listing_date || 'N/A'} | 最近推荐: ${stock.latest_recommend_date || 'N/A'}
+                    </div>
+                    ${messagesHtml ? `<div style="margin-top: 10px; padding: 8px; background: #fff; border: 1px dashed #ddd; max-height: 120px; overflow-y: auto;">${messagesHtml}</div>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        async function exportScreenerResults() {
+            if (!screenResults) {
+                document.getElementById('screen-message').innerHTML = '<div class="alert alert-error">[X] 没有可导出的结果</div>';
+                return;
+            }
+
+            const msgDiv = document.getElementById('screen-message');
+            const btn = document.getElementById('export-screen-btn');
+            btn.disabled = true;
+            btn.textContent = '[导出中...]';
+
+            try {
+                const response = await fetch('/api/stock/screener/export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ results: screenResults })
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `stock_screener_${new Date().toISOString().slice(0,10).replace(/-/g,'')}.xlsx`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    msgDiv.innerHTML = '<div class="alert alert-success">[OK] 导出成功</div>';
+                } else {
+                    const data = await response.json();
+                    msgDiv.innerHTML = `<div class="alert alert-error">[X] 导出失败: ${data.message || '未知错误'}</div>`;
+                }
+            } catch (err) {
+                msgDiv.innerHTML = `<div class="alert alert-error">[X] 导出失败: ${err.message}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '[导出结果]';
+            }
+        }
+
+        function clearScreener() {
+            document.getElementById('screen_cold_days').value = 30;
+            document.getElementById('screen_recommend_days').value = 7;
+            document.getElementById('screen_new_stock_days').value = 60;
+            document.getElementById('screen_chat_name').value = '';
+            document.getElementById('screen_recommend_keywords').value = '推荐,看好,建议买,值得关注,机会,潜力,低估,买入,加仓,重点关注';
+            document.getElementById('screen-message').innerHTML = '';
+            document.getElementById('screen-results-container').style.display = 'none';
+            document.getElementById('export-screen-btn').disabled = true;
+            screenResults = null;
+            currentScreenDate = null;
+            initScreenerDates();
+        }
+
     </script>
 </body>
 </html>

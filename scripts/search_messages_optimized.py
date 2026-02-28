@@ -352,12 +352,20 @@ class MessageSearcher:
         end_timestamp = None
 
         if start_date:
-            start_timestamp = int(pd.to_datetime(start_date).timestamp())
-            print(f"[筛选] 开始时间: {start_date} (时间戳>={start_timestamp})")
+            # 用datetime解析，确保按本地时间处理（pd.to_datetime会当UTC导致8小时偏移）
+            start_timestamp = int(datetime.fromisoformat(start_date).timestamp())
+            print(f"[筛选] 开始时间: {start_date} (时间戳>={start_timestamp})", flush=True)
 
         if end_date:
-            end_timestamp = int((pd.to_datetime(end_date) + pd.Timedelta(days=1)).timestamp())
-            print(f"[筛选] 结束时间: {end_date} (时间戳<{end_timestamp})")
+            from datetime import timedelta
+            end_dt = datetime.fromisoformat(end_date)
+            # 如果时间是00:00（用户只选了日期没调时间），包含整天
+            if end_dt.hour == 0 and end_dt.minute == 0:
+                end_timestamp = int((end_dt + timedelta(days=1)).timestamp())
+            else:
+                # 用户指定了具体时间，加1分钟使所选分钟内的消息都包含在内
+                end_timestamp = int((end_dt + timedelta(minutes=1)).timestamp())
+            print(f"[筛选] 结束时间: {end_date} (时间戳<{end_timestamp})", flush=True)
 
         all_messages = []
         processed_count = 0
